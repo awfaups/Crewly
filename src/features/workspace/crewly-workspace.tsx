@@ -230,9 +230,9 @@ export function CrewlyWorkspace() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-slate-950">
-      <div className="grid min-h-screen grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)_360px]">
-        <aside className="border-b border-stone-200 bg-[#f8f6f0] px-4 py-4 xl:border-b-0 xl:border-r">
+    <main className="h-dvh overflow-hidden bg-[#f4f1ea] text-slate-950">
+      <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden xl:grid-cols-[280px_minmax(0,1fr)_360px]">
+        <aside className="min-h-0 overflow-y-auto border-b border-stone-200 bg-[#f8f6f0] px-4 py-4 xl:border-b-0 xl:border-r">
           <WorkspaceHeader />
           <MetricStrip />
           <SidebarSection title="频道">
@@ -291,10 +291,10 @@ export function CrewlyWorkspace() {
           </button>
         </aside>
 
-        <section className="flex min-w-0 flex-col bg-[#fbfaf7]">
+        <section className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#fbfaf7]">
           <TopBar channel={activeChannel} pendingCount={pendingApprovals.length} />
-          <div className="grid flex-1 grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-            <div className="min-w-0">
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden p-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+            <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
               <ChannelTimeline
                 approvals={approvals}
                 messages={channelMessages}
@@ -313,7 +313,7 @@ export function CrewlyWorkspace() {
           </div>
         </section>
 
-        <aside className="border-t border-stone-200 bg-[#f8f6f0] p-4 xl:border-l xl:border-t-0">
+        <aside className="min-h-0 overflow-y-auto border-t border-stone-200 bg-[#f8f6f0] p-4 xl:border-l xl:border-t-0">
           <ContextPanel
             approval={taskApproval}
             member={selectedMember}
@@ -444,7 +444,7 @@ function ChannelTimeline({
   onSelectTask: (task: Task) => void;
 }>) {
   return (
-    <div className="space-y-3">
+    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
       {channelMessages.map((message) => {
         const author = members.find((member) => member.id === message.authorId) ?? members[0];
         const linkedTask = workspaceTasks.find((task) => task.id === message.linkedTaskId);
@@ -497,7 +497,7 @@ function Composer({ onSend }: Readonly<{ onSend: (body: string) => void }>) {
   }
 
   return (
-    <form className="mt-4 rounded-lg border border-stone-200 bg-white p-3 shadow-sm" onSubmit={handleSubmit}>
+    <form className="mt-4 shrink-0 rounded-lg border border-stone-200 bg-white p-3 shadow-sm" onSubmit={handleSubmit}>
       <div className="flex min-h-14 items-center gap-3 rounded-md bg-stone-50 px-3 text-sm text-slate-500">
         <MessageSquareText className="size-4 shrink-0" />
         <input
@@ -531,12 +531,12 @@ function TaskBoard({
   taskCount: number;
 }>) {
   return (
-    <section className="rounded-lg border border-stone-200 bg-white p-3 shadow-sm">
-      <div className="mb-3 flex items-center justify-between">
+    <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-stone-200 bg-white p-3 shadow-sm">
+      <div className="mb-3 flex shrink-0 items-center justify-between">
         <h2 className="font-semibold">任务看板</h2>
         <span className="text-xs text-slate-500">{taskCount} 个任务</span>
       </div>
-      <div className="space-y-3">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
         {groups.map((group) => (
           <div key={group.status}>
             <div className="mb-2 flex items-center justify-between text-xs font-medium text-slate-500">
