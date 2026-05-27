@@ -703,7 +703,7 @@ export function CrewlyWorkspace() {
                 >
                   <Avatar member={member} />
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">{member.name}</span>
+                    <MemberName member={member} />
                     <span className="block truncate text-xs text-slate-500">{member.role}</span>
                   </span>
                 </button>
@@ -965,7 +965,7 @@ function ChannelTimeline({
               <Avatar member={author} />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="font-medium">{author.name}</h3>
+                  <MemberName member={author} />
                   <span className="text-xs text-slate-500">{author.role}</span>
                   <span className="text-xs text-slate-400">{message.time}</span>
                 </div>
@@ -1141,7 +1141,7 @@ function TaskBoard({
                     </span>
                     <span className="mt-2 flex items-center gap-2 text-xs text-slate-500">
                       <Avatar member={assignee} small />
-                      {assignee.name}
+                      <MemberName member={assignee} small />
                     </span>
                   </button>
                 );
@@ -1241,7 +1241,7 @@ function ContextPanel({
         <div className="flex items-center gap-3">
           <Avatar member={member} />
           <div className="min-w-0">
-            <p className="font-medium">{member.name}</p>
+            <MemberName member={member} />
             <p className="truncate text-sm text-slate-500">{member.role}</p>
           </div>
         </div>
@@ -2000,6 +2000,29 @@ function Avatar({
       } ${member.kind === "ai" ? "bg-slate-950 text-white" : "bg-emerald-700 text-white"}`}
     >
       {member.avatar}
+    </span>
+  );
+}
+
+function MemberName({
+  member,
+  small = false,
+}: Readonly<{
+  member: Member;
+  small?: boolean;
+}>) {
+  return (
+    <span className={`flex min-w-0 items-center gap-1.5 ${small ? "text-xs" : "text-sm"}`}>
+      <span className="truncate font-medium">{member.name}</span>
+      {member.kind === "ai" ? <MemberKindBadge /> : null}
+    </span>
+  );
+}
+
+function MemberKindBadge() {
+  return (
+    <span className="shrink-0 rounded-md border border-cyan-200 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-cyan-700">
+      AI
     </span>
   );
 }
