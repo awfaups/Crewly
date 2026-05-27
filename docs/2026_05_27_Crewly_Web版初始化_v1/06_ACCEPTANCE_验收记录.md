@@ -7,6 +7,8 @@
 - 页面展示 AI teammates、channels、tasks、sessions、approvals。
 - 任务和 AI session 之间有明确关系。
 - 审批卡有 pending/approved/denied 状态表达。
+- 产品原型能体现 Helio 式工作台交互：左侧导航、中间工作流、右侧上下文。
+- Crewly 使用自有名称、文案、示例数据和视觉风格。
 - 代码通过可行的 lint/build 检查。
 - README 说明项目定位、运行方式和后续路线。
 
@@ -21,4 +23,3 @@
 ## 验收结果
 
 待实现后记录。
-

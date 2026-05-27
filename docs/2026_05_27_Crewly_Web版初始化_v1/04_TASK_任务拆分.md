@@ -40,6 +40,7 @@
 输入：
 
 - mock workspace、channels、teammates、tasks、sessions
+- Helio 公开体验作为交互参照
 
 输出：
 
@@ -47,11 +48,13 @@
 - 顶部状态栏
 - 主内容区域
 - 右侧上下文面板
+- 频道、任务、AI teammate、session、approval 的同屏联动体验
 
 验证：
 
 - 桌面布局清晰
 - 移动端不出现明显重叠
+- 第一屏是可操作 workspace，而不是营销介绍
 
 ## T4 构建频道和消息时间线
 
@@ -92,6 +95,7 @@
 输入：
 
 - runtime events
+- Helio 式 session timeline 交互参照
 
 输出：
 
@@ -102,6 +106,7 @@
 
 - 用户能理解 AI 正在做什么
 - 审批请求不会被普通消息淹没
+- runtime event 类型在视觉上可区分
 
 ## T7 构建 Approval 控件
 
@@ -134,4 +139,3 @@
 验证：
 
 - 文档和代码一致
-

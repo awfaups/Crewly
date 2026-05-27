@@ -89,6 +89,36 @@ src/lib
 
 第一版可以先使用单页应用式布局，在首页中集成主要工作区体验。
 
+## 交互原型要求
+
+原型交互参照 Helio 的公开体验，第一版首页应包含以下工作台结构：
+
+```text
+Global Shell
+  -> Left Sidebar
+       Workspace switcher
+       Channels
+       AI Teammates / DMs
+       Tasks shortcut
+  -> Main Work Area
+       Active channel timeline
+       Composer
+       Inline task / approval cards
+  -> Right Context Panel
+       Task board summary
+       Active agent session
+       Approval queue
+```
+
+关键交互：
+
+- 点击频道切换中间消息流。
+- 点击任务卡或任务列表项时，右侧展示任务上下文和相关 session。
+- 点击 AI teammate 时，显示该 AI 的状态、职责、订阅频道和当前任务。
+- Agent Session 以 timeline 呈现，区分 message、thinking、tool use、result、approval。
+- Pending approval 需要明显但克制地展示 approve / deny 操作。
+- 页面文案使用 Crewly 自有表达，不复用 Helio 原文。
+
 ## 数据流
 
 MVP 使用 mock data：
@@ -119,10 +149,11 @@ Agent runtime event stream
 - 使用真实产品式控件：tabs、buttons、badges、task board、timeline
 - 使用 lucide-react 图标
 - 移动端保证无文本溢出，但第一优先级是桌面团队工作台
+- 整体体验可接近 Helio 的“团队协作工具”密度，但视觉语言需要 Crewly 自有风格。
+- 不使用 Helio 标志、头像、示例编号、品牌色或原始文案。
 
 ## 风险
 
 - 如果过早接真实 agent runtime，会拉长交付周期。
 - 如果 UI 过于营销化，会偏离产品核心。
 - 如果模型、审批、任务、频道对象边界不清，后续后端会难以演进。
-
