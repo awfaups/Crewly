@@ -2,11 +2,14 @@
 
 import {
   Activity,
+  FileText,
+  Image as ImageIcon,
   Bot,
   Check,
   ChevronRight,
   CircleDot,
   Hash,
+  Paperclip,
   Inbox,
   LayoutDashboard,
   MessageSquareText,
@@ -33,6 +36,7 @@ import type {
   AgentSession,
   Approval,
   ApprovalStatus,
+  Attachment,
   Channel,
   Member,
   Message,
@@ -50,6 +54,7 @@ type PersistedWorkspaceState = {
 };
 
 const STORAGE_KEY = "crewly.workspace.v1";
+const MAX_ATTACHMENT_SIZE = 2 * 1024 * 1024;
 const taskStatusOrder: TaskStatus[] = ["todo", "doing", "review", "done"];
 
 const initialWorkspaceState: PersistedWorkspaceState = {
@@ -197,9 +202,9 @@ export function CrewlyWorkspace() {
     }));
   }
 
-  function sendMessage(body: string) {
+  function sendMessage(body: string, attachments: Attachment[]) {
     const trimmed = body.trim();
-    if (!trimmed) return;
+    if (!trimmed && attachments.length === 0) return;
 
     setWorkspaceState((current) => ({
       ...current,
@@ -208,6 +213,7 @@ export function CrewlyWorkspace() {
         {
           id: `message-${Date.now()}`,
           authorId: "lin",
+          attachments,
           body: trimmed,
           channelId: activeChannel.id,
           time: formatNow(),
@@ -491,6 +497,9 @@ function ChannelTimeline({
                 {linkedApproval ? (
                   <ApprovalCard approval={linkedApproval} compact onDecision={onDecision} />
                 ) : null}
+                {message.attachments && message.attachments.length > 0 ? (
+                  <AttachmentGrid attachments={message.attachments} />
+                ) : null}
               </div>
             </div>
           </article>
@@ -500,17 +509,57 @@ function ChannelTimeline({
   );
 }
 
-function Composer({ onSend }: Readonly<{ onSend: (body: string) => void }>) {
+function Composer({ onSend }: Readonly<{ onSend: (body: string, attachments: Attachment[]) => void }>) {
   const [value, setValue] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onSend(value);
+    onSend(value, attachments);
     setValue("");
+    setAttachments([]);
+    setAttachmentError("");
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  async function handleFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+
+    const nextAttachments: Attachment[] = [];
+    const errors: string[] = [];
+
+    for (const file of Array.from(files)) {
+      if (file.size > MAX_ATTACHMENT_SIZE) {
+        errors.push(`${file.name} 超过 2MB`);
+        continue;
+      }
+
+      nextAttachments.push(await readFileAttachment(file));
+    }
+
+    setAttachments((current) => [...current, ...nextAttachments]);
+    setAttachmentError(errors.join("，"));
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  function removeAttachment(id: string) {
+    setAttachments((current) => current.filter((attachment) => attachment.id !== id));
   }
 
   return (
     <form className="mt-4 shrink-0 rounded-lg border border-stone-200 bg-white p-3 shadow-sm" onSubmit={handleSubmit}>
+      {attachments.length > 0 ? (
+        <div className="mb-3">
+          <AttachmentGrid attachments={attachments} onRemove={removeAttachment} />
+        </div>
+      ) : null}
+      {attachmentError ? <p className="mb-2 text-xs text-rose-600">{attachmentError}</p> : null}
       <div className="flex min-h-14 items-center gap-3 rounded-md bg-stone-50 px-3 text-sm text-slate-500">
         <MessageSquareText className="size-4 shrink-0" />
         <input
@@ -519,9 +568,24 @@ function Composer({ onSend }: Readonly<{ onSend: (body: string) => void }>) {
           value={value}
           onChange={(event) => setValue(event.target.value)}
         />
+        <input
+          ref={fileInputRef}
+          className="hidden"
+          multiple
+          type="file"
+          onChange={(event) => void handleFiles(event.target.files)}
+        />
+        <button
+          className="grid size-9 place-items-center rounded-md border border-stone-200 bg-white text-slate-600 hover:bg-stone-100"
+          title="添加图片或文件"
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <Paperclip className="size-4" />
+        </button>
         <button
           className="grid size-9 place-items-center rounded-md bg-slate-950 text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-          disabled={!value.trim()}
+          disabled={!value.trim() && attachments.length === 0}
           title="发送"
           type="submit"
         >
@@ -735,6 +799,80 @@ function ApprovalCard({
   );
 }
 
+function AttachmentGrid({
+  attachments,
+  onRemove,
+}: Readonly<{
+  attachments: Attachment[];
+  onRemove?: (id: string) => void;
+}>) {
+  return (
+    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+      {attachments.map((attachment) =>
+        isImageAttachment(attachment) ? (
+          <div key={attachment.id} className="relative overflow-hidden rounded-md border border-stone-200 bg-white">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              alt={attachment.name}
+              className="h-32 w-full object-cover"
+              src={attachment.url}
+            />
+            <div className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs text-slate-600">
+              <span className="flex min-w-0 items-center gap-1">
+                <ImageIcon className="size-3.5 shrink-0" />
+                <span className="truncate">{attachment.name}</span>
+              </span>
+              <span className="shrink-0">{formatFileSize(attachment.size)}</span>
+            </div>
+            {onRemove ? <RemoveAttachmentButton id={attachment.id} onRemove={onRemove} /> : null}
+          </div>
+        ) : (
+          <div
+            key={attachment.id}
+            className="relative flex items-center gap-3 rounded-md border border-stone-200 bg-white p-3"
+          >
+            <div className="grid size-10 shrink-0 place-items-center rounded-md bg-stone-100 text-slate-600">
+              <FileText className="size-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <a
+                className="block truncate text-sm font-medium text-slate-800 hover:underline"
+                download={attachment.name}
+                href={attachment.url}
+              >
+                {attachment.name}
+              </a>
+              <p className="mt-1 text-xs text-slate-500">
+                {attachment.type || "未知类型"} · {formatFileSize(attachment.size)}
+              </p>
+            </div>
+            {onRemove ? <RemoveAttachmentButton id={attachment.id} onRemove={onRemove} /> : null}
+          </div>
+        ),
+      )}
+    </div>
+  );
+}
+
+function RemoveAttachmentButton({
+  id,
+  onRemove,
+}: Readonly<{
+  id: string;
+  onRemove: (id: string) => void;
+}>) {
+  return (
+    <button
+      className="absolute right-2 top-2 grid size-7 place-items-center rounded-md bg-white/90 text-slate-700 shadow-sm hover:bg-white"
+      title="移除附件"
+      type="button"
+      onClick={() => onRemove(id)}
+    >
+      <X className="size-4" />
+    </button>
+  );
+}
+
 function InfoTile({
   label,
   value,
@@ -789,6 +927,38 @@ function eventIcon(type: RuntimeEventType) {
   if (type === "result") return <Check className="size-3.5" />;
   if (type === "approval") return <ShieldCheck className="size-3.5" />;
   return <Minus className="size-3.5" />;
+}
+
+function readFileAttachment(file: File): Promise<Attachment> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.addEventListener("load", () => {
+      resolve({
+        id: `attachment-${Date.now()}-${crypto.randomUUID()}`,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        url: String(reader.result),
+      });
+    });
+
+    reader.addEventListener("error", () => {
+      reject(reader.error);
+    });
+
+    reader.readAsDataURL(file);
+  });
+}
+
+function isImageAttachment(attachment: Attachment) {
+  return attachment.type.startsWith("image/");
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function nextTaskStatus(status: TaskStatus): TaskStatus {

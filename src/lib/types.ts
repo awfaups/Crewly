@@ -17,6 +17,14 @@ export type RuntimeEventType =
 
 export type ApprovalStatus = "pending" | "approved" | "denied";
 
+export type Attachment = {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  url: string;
+};
+
 export type Workspace = {
   id: string;
   name: string;
@@ -47,6 +55,7 @@ export type Message = {
   authorId: string;
   time: string;
   body: string;
+  attachments?: Attachment[];
   linkedTaskId?: string;
   linkedApprovalId?: string;
 };
