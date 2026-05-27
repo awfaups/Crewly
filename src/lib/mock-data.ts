@@ -1,0 +1,293 @@
+import type {
+  AgentSession,
+  Approval,
+  Channel,
+  Member,
+  Message,
+  Task,
+  Workspace,
+} from "./types";
+
+export const workspace: Workspace = {
+  id: "crewly",
+  name: "Crewly 产品工作区",
+  description: "AI 队友与人类成员共同推进产品、研发和交付。",
+  health: "本周节奏稳定",
+  activeMembers: 8,
+};
+
+export const members: Member[] = [
+  {
+    id: "lin",
+    name: "林舟",
+    kind: "human",
+    role: "产品负责人",
+    avatar: "林",
+    presence: "online",
+  },
+  {
+    id: "chen",
+    name: "陈予",
+    kind: "human",
+    role: "前端工程师",
+    avatar: "陈",
+    presence: "busy",
+  },
+  {
+    id: "navigator",
+    name: "Navigator",
+    kind: "ai",
+    role: "需求梳理与任务拆解",
+    avatar: "N",
+    presence: "online",
+  },
+  {
+    id: "builder",
+    name: "Builder",
+    kind: "ai",
+    role: "实现方案与代码草稿",
+    avatar: "B",
+    presence: "busy",
+  },
+  {
+    id: "guardian",
+    name: "Guardian",
+    kind: "ai",
+    role: "风险检查与验收",
+    avatar: "G",
+    presence: "away",
+  },
+];
+
+export const channels: Channel[] = [
+  {
+    id: "product",
+    name: "产品工作台",
+    topic: "Crewly MVP 范围、交互和验收",
+    unread: 3,
+  },
+  {
+    id: "runtime",
+    name: "Agent 运行",
+    topic: "AI session、工具调用和审批队列",
+    unread: 1,
+  },
+  {
+    id: "delivery",
+    name: "交付节奏",
+    topic: "里程碑、风险和发布检查",
+    unread: 0,
+  },
+];
+
+export const tasks: Task[] = [
+  {
+    id: "task-shell",
+    title: "搭建中文三栏工作台",
+    summary: "完成左侧导航、中间频道流、右侧上下文面板的第一版体验。",
+    status: "doing",
+    priority: "高",
+    label: "界面骨架",
+    due: "今天",
+    assigneeId: "builder",
+    channelId: "product",
+    sessionId: "session-shell",
+  },
+  {
+    id: "task-approval",
+    title: "设计审批卡片状态",
+    summary: "让高风险动作在消息流和右侧面板中都能被清楚识别。",
+    status: "review",
+    priority: "高",
+    label: "审批",
+    due: "今天",
+    assigneeId: "guardian",
+    channelId: "runtime",
+    sessionId: "session-approval",
+  },
+  {
+    id: "task-copy",
+    title: "统一中文界面文案",
+    summary: "工作区、频道、任务、Agent Session 和按钮均使用中文表达。",
+    status: "todo",
+    priority: "中",
+    label: "文案",
+    due: "明天",
+    assigneeId: "navigator",
+    channelId: "product",
+    sessionId: "session-copy",
+  },
+  {
+    id: "task-readme",
+    title: "补充运行说明和路线图",
+    summary: "README 说明 Crewly 定位、本地运行方式和后续接入方向。",
+    status: "todo",
+    priority: "中",
+    label: "文档",
+    due: "本周",
+    assigneeId: "lin",
+    channelId: "delivery",
+    sessionId: "session-copy",
+  },
+];
+
+export const approvals: Approval[] = [
+  {
+    id: "approval-shell",
+    title: "允许 Builder 调整首页信息架构",
+    summary: "将默认首页替换为可操作工作台，并加入 mock runtime 数据。",
+    requesterId: "builder",
+    taskId: "task-shell",
+    status: "pending",
+    risk: "中风险：影响首屏结构，但不接触真实数据。",
+  },
+  {
+    id: "approval-runtime",
+    title: "发布前保留模拟 Agent Session",
+    summary: "第一版仅展示可解释的模拟执行轨迹，暂不连接真实模型。",
+    requesterId: "guardian",
+    taskId: "task-approval",
+    status: "approved",
+    risk: "低风险：明确 MVP 边界。",
+  },
+];
+
+export const sessions: AgentSession[] = [
+  {
+    id: "session-shell",
+    title: "中文工作台界面实现",
+    ownerId: "builder",
+    taskId: "task-shell",
+    status: "waiting_approval",
+    startedAt: "09:20",
+    events: [
+      {
+        id: "event-1",
+        type: "message",
+        title: "收到任务",
+        detail: "Builder 已读取产品文档，确认首页必须直接进入工作台。",
+        time: "09:20",
+      },
+      {
+        id: "event-2",
+        type: "thinking",
+        title: "梳理布局",
+        detail: "将频道、任务、AI 队友和审批放入同一操作面，减少页面跳转。",
+        time: "09:24",
+      },
+      {
+        id: "event-3",
+        type: "tool",
+        title: "生成 mock 数据",
+        detail: "准备 workspace、channel、task、session、approval 五类数据。",
+        time: "09:31",
+      },
+      {
+        id: "event-4",
+        type: "approval",
+        title: "等待确认",
+        detail: "首页结构调整需要产品负责人批准后进入发布检查。",
+        time: "09:38",
+      },
+    ],
+  },
+  {
+    id: "session-approval",
+    title: "审批体验检查",
+    ownerId: "guardian",
+    taskId: "task-approval",
+    status: "running",
+    startedAt: "10:05",
+    events: [
+      {
+        id: "event-5",
+        type: "thinking",
+        title: "识别风险",
+        detail: "审批控件需要同时表达动作、影响范围、风险等级和当前状态。",
+        time: "10:08",
+      },
+      {
+        id: "event-6",
+        type: "result",
+        title: "检查结论",
+        detail: "Pending 状态使用清晰按钮；Approved 状态只保留结果提示。",
+        time: "10:16",
+      },
+    ],
+  },
+  {
+    id: "session-copy",
+    title: "中文文案收敛",
+    ownerId: "navigator",
+    taskId: "task-copy",
+    status: "completed",
+    startedAt: "11:10",
+    events: [
+      {
+        id: "event-7",
+        type: "message",
+        title: "文案原则",
+        detail: "界面优先中文，技术名词如 Agent Session 可保留英文。",
+        time: "11:10",
+      },
+      {
+        id: "event-8",
+        type: "result",
+        title: "已完成",
+        detail: "主要导航、按钮、空状态和任务字段均使用中文表达。",
+        time: "11:22",
+      },
+    ],
+  },
+];
+
+export const messages: Message[] = [
+  {
+    id: "message-1",
+    channelId: "product",
+    authorId: "lin",
+    time: "09:12",
+    body: "第一版不要做营销页，打开就应该看到团队正在推进什么。",
+  },
+  {
+    id: "message-2",
+    channelId: "product",
+    authorId: "navigator",
+    time: "09:17",
+    body: "已把 Crewly 的信息架构收敛为频道、任务、AI 队友、Session 和审批五个对象。",
+    linkedTaskId: "task-copy",
+  },
+  {
+    id: "message-3",
+    channelId: "product",
+    authorId: "builder",
+    time: "09:35",
+    body: "我正在把首页改成中文三栏工作台，中间保留频道消息流，右侧展示任务和 Agent Session。",
+    linkedTaskId: "task-shell",
+    linkedApprovalId: "approval-shell",
+  },
+  {
+    id: "message-4",
+    channelId: "runtime",
+    authorId: "guardian",
+    time: "10:18",
+    body: "审批卡片需要出现在执行轨迹里，用户不能只在任务看板里发现风险。",
+    linkedTaskId: "task-approval",
+  },
+  {
+    id: "message-5",
+    channelId: "runtime",
+    authorId: "builder",
+    time: "10:26",
+    body: "当前实现只使用模拟数据，不连接真实模型、GitHub 或执行容器。",
+    linkedApprovalId: "approval-runtime",
+  },
+  {
+    id: "message-6",
+    channelId: "delivery",
+    authorId: "lin",
+    time: "11:30",
+    body: "验收重点：本地能跑、中文界面、三栏结构清晰、审批状态可见。",
+    linkedTaskId: "task-readme",
+  },
+];
