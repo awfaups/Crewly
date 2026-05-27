@@ -71,6 +71,7 @@ export type Task = {
   assigneeId: string;
   channelId: string;
   sessionId: string;
+  archived?: boolean;
 };
 
 export type RuntimeEvent = {

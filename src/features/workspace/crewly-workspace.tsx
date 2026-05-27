@@ -2,16 +2,19 @@
 
 import {
   Activity,
+  Archive,
   FileText,
   Image as ImageIcon,
   Bot,
   Check,
   ChevronRight,
   CircleDot,
+  Edit3,
   Hash,
   Paperclip,
   Inbox,
   LayoutDashboard,
+  Plus,
   MessageSquareText,
   Minus,
   RotateCcw,
@@ -43,6 +46,7 @@ import type {
   RuntimeEventType,
   SessionStatus,
   Task,
+  TaskPriority,
   TaskStatus,
 } from "@/lib/types";
 
@@ -51,6 +55,17 @@ type PersistedWorkspaceState = {
   messages: Message[];
   sessions: AgentSession[];
   tasks: Task[];
+};
+
+type TaskFormMode = "create" | "edit";
+
+type TaskFormState = {
+  assigneeId: string;
+  due: string;
+  label: string;
+  priority: TaskPriority;
+  summary: string;
+  title: string;
 };
 
 const STORAGE_KEY = "crewly.workspace.v1";
@@ -62,6 +77,15 @@ const initialWorkspaceState: PersistedWorkspaceState = {
   messages,
   sessions,
   tasks,
+};
+
+const emptyTaskForm: TaskFormState = {
+  assigneeId: "builder",
+  due: "今天",
+  label: "需求",
+  priority: "中",
+  summary: "",
+  title: "",
 };
 
 const statusLabel: Record<TaskStatus, string> = {
@@ -96,6 +120,10 @@ export function CrewlyWorkspace() {
   const [activeChannelId, setActiveChannelId] = useState(channels[0].id);
   const [selectedTaskId, setSelectedTaskId] = useState(tasks[0].id);
   const [selectedMemberId, setSelectedMemberId] = useState("builder");
+  const [taskFormMode, setTaskFormMode] = useState<TaskFormMode>("create");
+  const [taskFormOpen, setTaskFormOpen] = useState(false);
+  const [taskFormTaskId, setTaskFormTaskId] = useState<string | null>(null);
+  const [taskFormValues, setTaskFormValues] = useState<TaskFormState>(emptyTaskForm);
   const [workspaceState, setWorkspaceState] = useState(readInitialWorkspaceState);
 
   const { approvals, messages: workspaceMessages, sessions: workspaceSessions, tasks: workspaceTasks } =
@@ -110,7 +138,8 @@ export function CrewlyWorkspace() {
   }, [workspaceState]);
 
   const activeChannel = channels.find((channel) => channel.id === activeChannelId) ?? channels[0];
-  const selectedTask = workspaceTasks.find((task) => task.id === selectedTaskId) ?? workspaceTasks[0];
+  const visibleTasks = useMemo(() => workspaceTasks.filter((task) => !task.archived), [workspaceTasks]);
+  const selectedTask = visibleTasks.find((task) => task.id === selectedTaskId) ?? visibleTasks[0] ?? workspaceTasks[0];
   const selectedSession =
     workspaceSessions.find((session) => session.id === selectedTask.sessionId) ?? workspaceSessions[0];
   const selectedMember =
@@ -125,9 +154,9 @@ export function CrewlyWorkspace() {
     () =>
       (["todo", "doing", "review", "done"] as TaskStatus[]).map((status) => ({
         status,
-        items: workspaceTasks.filter((task) => task.status === status),
+        items: visibleTasks.filter((task) => task.status === status),
       })),
-    [workspaceTasks],
+    [visibleTasks],
   );
 
   function decideApproval(id: string, status: ApprovalStatus) {
@@ -202,6 +231,171 @@ export function CrewlyWorkspace() {
     }));
   }
 
+  function openCreateTaskForm(seed?: Partial<TaskFormState>) {
+    setTaskFormMode("create");
+    setTaskFormTaskId(null);
+    setTaskFormValues({
+      ...emptyTaskForm,
+      assigneeId: selectedMember.kind === "ai" ? selectedMember.id : "builder",
+      ...seed,
+    });
+    setTaskFormOpen(true);
+  }
+
+  function openEditTaskForm(task: Task) {
+    setTaskFormMode("edit");
+    setTaskFormTaskId(task.id);
+    setTaskFormValues({
+      assigneeId: task.assigneeId,
+      due: task.due,
+      label: task.label,
+      priority: task.priority,
+      summary: task.summary,
+      title: task.title,
+    });
+    setTaskFormOpen(true);
+  }
+
+  function saveTaskForm(values: TaskFormState) {
+    const title = values.title.trim();
+    if (!title) return;
+
+    if (taskFormMode === "edit" && taskFormTaskId) {
+      setWorkspaceState((current) => ({
+        ...current,
+        sessions: current.sessions.map((session) =>
+          session.taskId === taskFormTaskId
+            ? {
+                ...session,
+                title,
+              }
+            : session,
+        ),
+        tasks: current.tasks.map((task) =>
+          task.id === taskFormTaskId
+            ? {
+                ...task,
+                ...values,
+                title,
+              }
+            : task,
+        ),
+      }));
+      setTaskFormOpen(false);
+      return;
+    }
+
+    const taskId = `task-${Date.now()}`;
+    const sessionId = `session-${Date.now()}`;
+    const task: Task = {
+      ...values,
+      id: taskId,
+      title,
+      channelId: activeChannel.id,
+      sessionId,
+      status: "todo",
+    };
+    const session: AgentSession = {
+      id: sessionId,
+      ownerId: values.assigneeId,
+      taskId,
+      title,
+      status: "running",
+      startedAt: formatNow(),
+      events: [
+        {
+          id: `event-${Date.now()}`,
+          type: "message",
+          title: "任务已创建",
+          detail: values.summary || "已从工作台创建新任务。",
+          time: formatNow(),
+        },
+      ],
+    };
+
+    setWorkspaceState((current) => ({
+      ...current,
+      sessions: [...current.sessions, session],
+      tasks: [...current.tasks, task],
+    }));
+    setSelectedTaskId(taskId);
+    setSelectedMemberId(values.assigneeId);
+    setTaskFormOpen(false);
+  }
+
+  function archiveTask(taskId: string) {
+    const nextTask = visibleTasks.find((task) => task.id !== taskId);
+
+    setWorkspaceState((current) => ({
+      ...current,
+      tasks: current.tasks.map((task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              archived: true,
+            }
+          : task,
+      ),
+    }));
+
+    if (selectedTaskId === taskId && nextTask) {
+      selectTask(nextTask);
+    }
+  }
+
+  function convertMessageToTask(message: Message) {
+    if (message.linkedTaskId) return;
+
+    const title = message.body.trim().slice(0, 28) || "来自会话的新任务";
+    const taskId = `task-${Date.now()}`;
+    const sessionId = `session-${Date.now()}`;
+    const task: Task = {
+      id: taskId,
+      title,
+      summary: message.body || "由附件消息转为任务。",
+      status: "todo",
+      priority: "中",
+      label: "会话转入",
+      due: "今天",
+      assigneeId: "navigator",
+      channelId: message.channelId,
+      sessionId,
+    };
+    const session: AgentSession = {
+      id: sessionId,
+      ownerId: "navigator",
+      taskId,
+      title,
+      status: "running",
+      startedAt: formatNow(),
+      events: [
+        {
+          id: `event-${Date.now()}`,
+          type: "message",
+          title: "由消息转为任务",
+          detail: message.body || "该任务来自一条附件消息。",
+          time: formatNow(),
+        },
+      ],
+    };
+
+    setWorkspaceState((current) => ({
+      ...current,
+      messages: current.messages.map((item) =>
+        item.id === message.id
+          ? {
+              ...item,
+              linkedTaskId: taskId,
+            }
+          : item,
+      ),
+      sessions: [...current.sessions, session],
+      tasks: [...current.tasks, task],
+    }));
+    setSelectedTaskId(taskId);
+    setSelectedMemberId("navigator");
+  }
+
   function sendMessage(body: string, attachments: Attachment[]) {
     const trimmed = body.trim();
     if (!trimmed && attachments.length === 0) return;
@@ -250,6 +444,7 @@ export function CrewlyWorkspace() {
                     ? "bg-slate-950 text-white"
                     : "text-slate-700 hover:bg-white"
                 }`}
+                type="button"
                 onClick={() => setActiveChannelId(channel.id)}
               >
                 <span className="flex min-w-0 items-center gap-2">
@@ -273,6 +468,7 @@ export function CrewlyWorkspace() {
                   className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left transition ${
                     selectedMember.id === member.id ? "bg-white shadow-sm" : "hover:bg-white"
                   }`}
+                  type="button"
                   onClick={() => setSelectedMemberId(member.id)}
                 >
                   <Avatar member={member} />
@@ -289,7 +485,16 @@ export function CrewlyWorkspace() {
             <SidebarShortcut icon={<Inbox className="size-4" />} label="审批队列" />
           </SidebarSection>
           <button
-            className="mt-5 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-stone-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-stone-50"
+            className="mt-5 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-medium text-white shadow-sm hover:bg-slate-800"
+            type="button"
+            onClick={() => openCreateTaskForm()}
+          >
+            <Plus className="size-4" />
+            新建任务
+          </button>
+          <button
+            className="mt-2 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-stone-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-stone-50"
+            type="button"
             onClick={resetDemoData}
           >
             <RotateCcw className="size-4" />
@@ -305,6 +510,7 @@ export function CrewlyWorkspace() {
                 approvals={approvals}
                 messages={channelMessages}
                 tasks={workspaceTasks}
+                onConvertMessageToTask={convertMessageToTask}
                 onDecision={decideApproval}
                 onSelectTask={selectTask}
               />
@@ -323,13 +529,24 @@ export function CrewlyWorkspace() {
           <ContextPanel
             approval={taskApproval}
             member={selectedMember}
+            onArchiveTask={archiveTask}
             onDecision={decideApproval}
+            onEditTask={openEditTaskForm}
             onTaskStatusAdvance={advanceTaskStatus}
             session={selectedSession}
             task={selectedTask}
           />
         </aside>
       </div>
+      {taskFormOpen ? (
+        <TaskFormDialog
+          mode={taskFormMode}
+          values={taskFormValues}
+          onChange={setTaskFormValues}
+          onClose={() => setTaskFormOpen(false)}
+          onSubmit={saveTaskForm}
+        />
+      ) : null}
     </main>
   );
 }
@@ -440,12 +657,14 @@ function ChannelTimeline({
   approvals,
   messages: channelMessages,
   tasks: workspaceTasks,
+  onConvertMessageToTask,
   onDecision,
   onSelectTask,
 }: Readonly<{
   approvals: Approval[];
   messages: Message[];
   tasks: Task[];
+  onConvertMessageToTask: (message: Message) => void;
   onDecision: (id: string, status: ApprovalStatus) => void;
   onSelectTask: (task: Task) => void;
 }>) {
@@ -480,6 +699,15 @@ function ChannelTimeline({
                   <span className="text-xs text-slate-400">{message.time}</span>
                 </div>
                 <p className="mt-2 text-sm leading-6 text-slate-700">{message.body}</p>
+                {!message.linkedTaskId ? (
+                  <button
+                    className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md border border-stone-200 bg-white px-2.5 text-xs font-medium text-slate-600 hover:bg-stone-50"
+                    onClick={() => onConvertMessageToTask(message)}
+                  >
+                    <Plus className="size-3.5" />
+                    转为任务
+                  </button>
+                ) : null}
                 {linkedTask ? (
                   <button
                     className="mt-3 flex w-full items-start justify-between rounded-md border border-stone-200 bg-stone-50 p-3 text-left hover:border-slate-300 hover:bg-white"
@@ -656,14 +884,18 @@ function TaskBoard({
 function ContextPanel({
   approval,
   member,
+  onArchiveTask,
   onDecision,
+  onEditTask,
   onTaskStatusAdvance,
   session,
   task,
 }: Readonly<{
   approval?: Approval;
   member: Member;
+  onArchiveTask: (taskId: string) => void;
   onDecision: (id: string, status: ApprovalStatus) => void;
+  onEditTask: (task: Task) => void;
   onTaskStatusAdvance: (taskId: string) => void;
   session: AgentSession;
   task: Task;
@@ -706,6 +938,22 @@ function ContextPanel({
           <ChevronRight className="size-4" />
           推进到{statusLabel[nextTaskStatus(task.status)]}
         </button>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <button
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-stone-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-stone-50"
+            onClick={() => onEditTask(task)}
+          >
+            <Edit3 className="size-4" />
+            编辑
+          </button>
+          <button
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-stone-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-stone-50"
+            onClick={() => onArchiveTask(task.id)}
+          >
+            <Archive className="size-4" />
+            归档
+          </button>
+        </div>
       </section>
 
       <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
@@ -796,6 +1044,148 @@ function ApprovalCard({
         </div>
       ) : null}
     </section>
+  );
+}
+
+function TaskFormDialog({
+  mode,
+  onChange,
+  onClose,
+  onSubmit,
+  values,
+}: Readonly<{
+  mode: TaskFormMode;
+  onChange: (values: TaskFormState) => void;
+  onClose: () => void;
+  onSubmit: (values: TaskFormState) => void;
+  values: TaskFormState;
+}>) {
+  function update<K extends keyof TaskFormState>(key: K, value: TaskFormState[K]) {
+    onChange({
+      ...values,
+      [key]: value,
+    });
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmit(values);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4">
+      <form className="w-full max-w-xl rounded-lg bg-white p-5 shadow-xl" onSubmit={handleSubmit}>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium text-slate-500">任务</p>
+            <h2 className="text-xl font-semibold">{mode === "create" ? "新建任务" : "编辑任务"}</h2>
+          </div>
+          <button
+            className="grid size-8 place-items-center rounded-md border border-stone-200 text-slate-600 hover:bg-stone-50"
+            type="button"
+            onClick={onClose}
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+        <div className="space-y-3">
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">标题</span>
+            <input
+              className="mt-1 h-10 w-full rounded-md border border-stone-300 px-3 text-sm outline-none focus:border-slate-950"
+              placeholder="输入任务标题"
+              required
+              value={values.title}
+              onChange={(event) => update("title", event.target.value)}
+            />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">描述</span>
+            <textarea
+              className="mt-1 min-h-24 w-full resize-none rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-slate-950"
+              placeholder="补充任务背景、目标或验收口径"
+              value={values.summary}
+              onChange={(event) => update("summary", event.target.value)}
+            />
+          </label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <TaskSelect
+              label="负责人"
+              value={values.assigneeId}
+              onChange={(value) => update("assigneeId", value)}
+            >
+              {members.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.name} · {member.role}
+                </option>
+              ))}
+            </TaskSelect>
+            <TaskSelect
+              label="优先级"
+              value={values.priority}
+              onChange={(value) => update("priority", value as TaskPriority)}
+            >
+              <option value="高">高</option>
+              <option value="中">中</option>
+              <option value="低">低</option>
+            </TaskSelect>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700">标签</span>
+              <input
+                className="mt-1 h-10 w-full rounded-md border border-stone-300 px-3 text-sm outline-none focus:border-slate-950"
+                value={values.label}
+                onChange={(event) => update("label", event.target.value)}
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700">截止</span>
+              <input
+                className="mt-1 h-10 w-full rounded-md border border-stone-300 px-3 text-sm outline-none focus:border-slate-950"
+                value={values.due}
+                onChange={(event) => update("due", event.target.value)}
+              />
+            </label>
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            className="h-10 rounded-md border border-stone-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-stone-50"
+            type="button"
+            onClick={onClose}
+          >
+            取消
+          </button>
+          <button className="h-10 rounded-md bg-slate-950 px-4 text-sm font-medium text-white" type="submit">
+            {mode === "create" ? "创建任务" : "保存修改"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function TaskSelect({
+  children,
+  label,
+  onChange,
+  value,
+}: Readonly<{
+  children: React.ReactNode;
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}>) {
+  return (
+    <label className="block">
+      <span className="text-sm font-medium text-slate-700">{label}</span>
+      <select
+        className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm outline-none focus:border-slate-950"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {children}
+      </select>
+    </label>
   );
 }
 
