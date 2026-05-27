@@ -28,8 +28,8 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   approvals as approvalSeed,
-  channels,
-  members,
+  channels as channelSeed,
+  members as memberSeed,
   messages,
   sessions,
   tasks,
@@ -52,6 +52,8 @@ import type {
 
 type PersistedWorkspaceState = {
   approvals: Approval[];
+  channels: Channel[];
+  members: Member[];
   messages: Message[];
   sessions: AgentSession[];
   tasks: Task[];
@@ -68,12 +70,25 @@ type TaskFormState = {
   title: string;
 };
 
+type ChannelFormState = {
+  name: string;
+  topic: string;
+};
+
+type MemberFormState = {
+  avatar: string;
+  name: string;
+  role: string;
+};
+
 const STORAGE_KEY = "crewly.workspace.v1";
 const MAX_ATTACHMENT_SIZE = 2 * 1024 * 1024;
 const taskStatusOrder: TaskStatus[] = ["todo", "doing", "review", "done"];
 
 const initialWorkspaceState: PersistedWorkspaceState = {
   approvals: approvalSeed,
+  channels: channelSeed,
+  members: memberSeed,
   messages,
   sessions,
   tasks,
@@ -86,6 +101,17 @@ const emptyTaskForm: TaskFormState = {
   priority: "中",
   summary: "",
   title: "",
+};
+
+const emptyChannelForm: ChannelFormState = {
+  name: "",
+  topic: "",
+};
+
+const emptyMemberForm: MemberFormState = {
+  avatar: "",
+  name: "",
+  role: "",
 };
 
 const statusLabel: Record<TaskStatus, string> = {
@@ -117,17 +143,27 @@ const eventTone: Record<RuntimeEventType, string> = {
 };
 
 export function CrewlyWorkspace() {
-  const [activeChannelId, setActiveChannelId] = useState(channels[0].id);
+  const [activeChannelId, setActiveChannelId] = useState(channelSeed[0].id);
   const [selectedTaskId, setSelectedTaskId] = useState(tasks[0].id);
   const [selectedMemberId, setSelectedMemberId] = useState("builder");
+  const [channelFormOpen, setChannelFormOpen] = useState(false);
+  const [channelFormValues, setChannelFormValues] = useState<ChannelFormState>(emptyChannelForm);
+  const [memberFormOpen, setMemberFormOpen] = useState(false);
+  const [memberFormValues, setMemberFormValues] = useState<MemberFormState>(emptyMemberForm);
   const [taskFormMode, setTaskFormMode] = useState<TaskFormMode>("create");
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [taskFormTaskId, setTaskFormTaskId] = useState<string | null>(null);
   const [taskFormValues, setTaskFormValues] = useState<TaskFormState>(emptyTaskForm);
   const [workspaceState, setWorkspaceState] = useState(readInitialWorkspaceState);
 
-  const { approvals, messages: workspaceMessages, sessions: workspaceSessions, tasks: workspaceTasks } =
-    workspaceState;
+  const {
+    approvals,
+    channels: workspaceChannels,
+    members: workspaceMembers,
+    messages: workspaceMessages,
+    sessions: workspaceSessions,
+    tasks: workspaceTasks,
+  } = workspaceState;
 
   useEffect(() => {
     try {
@@ -137,15 +173,15 @@ export function CrewlyWorkspace() {
     }
   }, [workspaceState]);
 
-  const activeChannel = channels.find((channel) => channel.id === activeChannelId) ?? channels[0];
+  const activeChannel = workspaceChannels.find((channel) => channel.id === activeChannelId) ?? workspaceChannels[0];
   const visibleTasks = useMemo(() => workspaceTasks.filter((task) => !task.archived), [workspaceTasks]);
   const selectedTask = visibleTasks.find((task) => task.id === selectedTaskId) ?? visibleTasks[0] ?? workspaceTasks[0];
   const selectedSession =
     workspaceSessions.find((session) => session.id === selectedTask.sessionId) ?? workspaceSessions[0];
   const selectedMember =
-    members.find((member) => member.id === selectedMemberId) ??
-    members.find((member) => member.id === selectedTask.assigneeId) ??
-    members[0];
+    workspaceMembers.find((member) => member.id === selectedMemberId) ??
+    workspaceMembers.find((member) => member.id === selectedTask.assigneeId) ??
+    workspaceMembers[0];
   const channelMessages = workspaceMessages.filter((message) => message.channelId === activeChannel.id);
   const taskApproval = approvals.find((approval) => approval.taskId === selectedTask.id);
   const pendingApprovals = approvals.filter((approval) => approval.status === "pending");
@@ -158,6 +194,66 @@ export function CrewlyWorkspace() {
       })),
     [visibleTasks],
   );
+
+  function openCreateChannelForm() {
+    setChannelFormValues(emptyChannelForm);
+    setChannelFormOpen(true);
+  }
+
+  function openCreateMemberForm() {
+    setMemberFormValues(emptyMemberForm);
+    setMemberFormOpen(true);
+  }
+
+  function saveChannelForm(values: ChannelFormState) {
+    const name = values.name.trim();
+    if (!name) return;
+
+    const channelId = `channel-${Date.now()}`;
+    const channel: Channel = {
+      id: channelId,
+      name,
+      topic: values.topic.trim() || "新的协作频道",
+      unread: 0,
+    };
+    const welcomeMessage: Message = {
+      id: `message-${Date.now()}`,
+      authorId: "navigator",
+      body: `频道「${name}」已创建，可以在这里同步需求、任务和 AI 执行进展。`,
+      channelId,
+      time: formatNow(),
+    };
+
+    setWorkspaceState((current) => ({
+      ...current,
+      channels: [...current.channels, channel],
+      messages: [...current.messages, welcomeMessage],
+    }));
+    setActiveChannelId(channelId);
+    setChannelFormOpen(false);
+  }
+
+  function saveMemberForm(values: MemberFormState) {
+    const name = values.name.trim();
+    if (!name) return;
+
+    const memberId = `ai-${Date.now()}`;
+    const member: Member = {
+      id: memberId,
+      name,
+      kind: "ai",
+      role: values.role.trim() || "AI 协作队友",
+      avatar: normalizeAvatar(values.avatar, name),
+      presence: "online",
+    };
+
+    setWorkspaceState((current) => ({
+      ...current,
+      members: [...current.members, member],
+    }));
+    setSelectedMemberId(memberId);
+    setMemberFormOpen(false);
+  }
 
   function decideApproval(id: string, status: ApprovalStatus) {
     setWorkspaceState((current) => {
@@ -426,7 +522,7 @@ export function CrewlyWorkspace() {
     setWorkspaceState(initialWorkspaceState);
     setSelectedTaskId(tasks[0].id);
     setSelectedMemberId("builder");
-    setActiveChannelId(channels[0].id);
+    setActiveChannelId(channelSeed[0].id);
   }
 
   return (
@@ -434,9 +530,9 @@ export function CrewlyWorkspace() {
       <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden xl:grid-cols-[280px_minmax(0,1fr)_360px]">
         <aside className="min-h-0 overflow-y-auto border-b border-stone-200 bg-[#f8f6f0] px-4 py-4 xl:border-b-0 xl:border-r">
           <WorkspaceHeader />
-          <MetricStrip />
+          <MetricStrip activeMemberCount={workspaceMembers.length} />
           <SidebarSection title="频道">
-            {channels.map((channel) => (
+            {workspaceChannels.map((channel) => (
               <button
                 key={channel.id}
                 className={`flex h-11 w-full items-center justify-between rounded-md px-3 text-left text-sm transition ${
@@ -458,9 +554,17 @@ export function CrewlyWorkspace() {
                 ) : null}
               </button>
             ))}
+            <button
+              className="flex h-10 w-full items-center gap-2 rounded-md px-3 text-sm font-medium text-slate-600 hover:bg-white"
+              type="button"
+              onClick={openCreateChannelForm}
+            >
+              <Plus className="size-4" />
+              新建频道
+            </button>
           </SidebarSection>
           <SidebarSection title="AI 队友">
-            {members
+            {workspaceMembers
               .filter((member) => member.kind === "ai")
               .map((member) => (
                 <button
@@ -478,6 +582,14 @@ export function CrewlyWorkspace() {
                   </span>
                 </button>
               ))}
+            <button
+              className="flex h-10 w-full items-center gap-2 rounded-md px-3 text-sm font-medium text-slate-600 hover:bg-white"
+              type="button"
+              onClick={openCreateMemberForm}
+            >
+              <Plus className="size-4" />
+              新建 AI 队友
+            </button>
           </SidebarSection>
           <SidebarSection title="快捷入口">
             <SidebarShortcut icon={<LayoutDashboard className="size-4" />} label="任务看板" />
@@ -503,11 +615,17 @@ export function CrewlyWorkspace() {
         </aside>
 
         <section className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#fbfaf7]">
-          <TopBar channel={activeChannel} pendingCount={pendingApprovals.length} />
+          <TopBar
+            aiMemberCount={workspaceMembers.filter((member) => member.kind === "ai").length}
+            channel={activeChannel}
+            onlineMemberCount={workspaceMembers.filter((member) => member.presence === "online").length}
+            pendingCount={pendingApprovals.length}
+          />
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden p-4 lg:grid-cols-[minmax(0,1fr)_280px]">
             <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
               <ChannelTimeline
                 approvals={approvals}
+                members={workspaceMembers}
                 messages={channelMessages}
                 tasks={workspaceTasks}
                 onConvertMessageToTask={convertMessageToTask}
@@ -518,6 +636,7 @@ export function CrewlyWorkspace() {
             </div>
             <TaskBoard
               groups={taskGroups}
+              members={workspaceMembers}
               selectedTaskId={selectedTask.id}
               taskCount={workspaceTasks.length}
               onSelectTask={selectTask}
@@ -542,9 +661,26 @@ export function CrewlyWorkspace() {
         <TaskFormDialog
           mode={taskFormMode}
           values={taskFormValues}
+          members={workspaceMembers}
           onChange={setTaskFormValues}
           onClose={() => setTaskFormOpen(false)}
           onSubmit={saveTaskForm}
+        />
+      ) : null}
+      {channelFormOpen ? (
+        <ChannelFormDialog
+          values={channelFormValues}
+          onChange={setChannelFormValues}
+          onClose={() => setChannelFormOpen(false)}
+          onSubmit={saveChannelForm}
+        />
+      ) : null}
+      {memberFormOpen ? (
+        <MemberFormDialog
+          values={memberFormValues}
+          onChange={setMemberFormValues}
+          onClose={() => setMemberFormOpen(false)}
+          onSubmit={saveMemberForm}
         />
       ) : null}
     </main>
@@ -567,12 +703,12 @@ function WorkspaceHeader() {
   );
 }
 
-function MetricStrip() {
+function MetricStrip({ activeMemberCount }: Readonly<{ activeMemberCount: number }>) {
   return (
     <div className="mt-3 grid grid-cols-2 gap-2">
       <div className="rounded-md border border-stone-200 bg-white p-3">
         <p className="text-xs text-slate-500">活跃成员</p>
-        <p className="mt-1 text-xl font-semibold">{workspace.activeMembers}</p>
+        <p className="mt-1 text-xl font-semibold">{activeMemberCount}</p>
       </div>
       <div className="rounded-md border border-stone-200 bg-white p-3">
         <p className="text-xs text-slate-500">工作状态</p>
@@ -613,10 +749,14 @@ function SidebarShortcut({
 }
 
 function TopBar({
+  aiMemberCount,
   channel,
+  onlineMemberCount,
   pendingCount,
 }: Readonly<{
+  aiMemberCount: number;
   channel: Channel;
+  onlineMemberCount: number;
   pendingCount: number;
 }>) {
   return (
@@ -630,8 +770,8 @@ function TopBar({
         <p className="truncate text-sm text-slate-500">{channel.topic}</p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Badge icon={<Users className="size-3.5" />} label="5 位成员在线" />
-        <Badge icon={<Bot className="size-3.5" />} label="3 个 AI 队友" />
+        <Badge icon={<Users className="size-3.5" />} label={`${onlineMemberCount} 位成员在线`} />
+        <Badge icon={<Bot className="size-3.5" />} label={`${aiMemberCount} 个 AI 队友`} />
         <Badge icon={<ShieldCheck className="size-3.5" />} label={`${pendingCount} 个待审批`} />
       </div>
     </header>
@@ -655,6 +795,7 @@ function Badge({
 
 function ChannelTimeline({
   approvals,
+  members,
   messages: channelMessages,
   tasks: workspaceTasks,
   onConvertMessageToTask,
@@ -662,6 +803,7 @@ function ChannelTimeline({
   onSelectTask,
 }: Readonly<{
   approvals: Approval[];
+  members: Member[];
   messages: Message[];
   tasks: Task[];
   onConvertMessageToTask: (message: Message) => void;
@@ -826,11 +968,13 @@ function Composer({ onSend }: Readonly<{ onSend: (body: string, attachments: Att
 
 function TaskBoard({
   groups,
+  members,
   onSelectTask,
   selectedTaskId,
   taskCount,
 }: Readonly<{
   groups: { status: TaskStatus; items: Task[] }[];
+  members: Member[];
   onSelectTask: (task: Task) => void;
   selectedTaskId: string;
   taskCount: number;
@@ -1048,12 +1192,14 @@ function ApprovalCard({
 }
 
 function TaskFormDialog({
+  members,
   mode,
   onChange,
   onClose,
   onSubmit,
   values,
 }: Readonly<{
+  members: Member[];
   mode: TaskFormMode;
   onChange: (values: TaskFormState) => void;
   onClose: () => void;
@@ -1160,6 +1306,173 @@ function TaskFormDialog({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function ChannelFormDialog({
+  onChange,
+  onClose,
+  onSubmit,
+  values,
+}: Readonly<{
+  onChange: (values: ChannelFormState) => void;
+  onClose: () => void;
+  onSubmit: (values: ChannelFormState) => void;
+  values: ChannelFormState;
+}>) {
+  function update<K extends keyof ChannelFormState>(key: K, value: ChannelFormState[K]) {
+    onChange({
+      ...values,
+      [key]: value,
+    });
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmit(values);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4">
+      <form className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl" onSubmit={handleSubmit}>
+        <DialogHeader eyebrow="频道" title="新建频道" onClose={onClose} />
+        <div className="space-y-3">
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">频道名称</span>
+            <input
+              className="mt-1 h-10 w-full rounded-md border border-stone-300 px-3 text-sm outline-none focus:border-slate-950"
+              placeholder="例如：设计评审"
+              required
+              value={values.name}
+              onChange={(event) => update("name", event.target.value)}
+            />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">主题</span>
+            <textarea
+              className="mt-1 min-h-24 w-full resize-none rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-slate-950"
+              placeholder="说明这个频道用于同步什么内容"
+              value={values.topic}
+              onChange={(event) => update("topic", event.target.value)}
+            />
+          </label>
+        </div>
+        <DialogActions submitLabel="创建频道" onClose={onClose} />
+      </form>
+    </div>
+  );
+}
+
+function MemberFormDialog({
+  onChange,
+  onClose,
+  onSubmit,
+  values,
+}: Readonly<{
+  onChange: (values: MemberFormState) => void;
+  onClose: () => void;
+  onSubmit: (values: MemberFormState) => void;
+  values: MemberFormState;
+}>) {
+  function update<K extends keyof MemberFormState>(key: K, value: MemberFormState[K]) {
+    onChange({
+      ...values,
+      [key]: value,
+    });
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmit(values);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4">
+      <form className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl" onSubmit={handleSubmit}>
+        <DialogHeader eyebrow="AI 队友" title="新建 AI 队友" onClose={onClose} />
+        <div className="space-y-3">
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">名称</span>
+            <input
+              className="mt-1 h-10 w-full rounded-md border border-stone-300 px-3 text-sm outline-none focus:border-slate-950"
+              placeholder="例如：Researcher"
+              required
+              value={values.name}
+              onChange={(event) => update("name", event.target.value)}
+            />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">职责</span>
+            <textarea
+              className="mt-1 min-h-24 w-full resize-none rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-slate-950"
+              placeholder="例如：竞品研究、资料整理和结论提炼"
+              value={values.role}
+              onChange={(event) => update("role", event.target.value)}
+            />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">头像字符</span>
+            <input
+              className="mt-1 h-10 w-full rounded-md border border-stone-300 px-3 text-sm outline-none focus:border-slate-950"
+              maxLength={2}
+              placeholder="默认使用名称首字"
+              value={values.avatar}
+              onChange={(event) => update("avatar", event.target.value)}
+            />
+          </label>
+        </div>
+        <DialogActions submitLabel="创建 AI 队友" onClose={onClose} />
+      </form>
+    </div>
+  );
+}
+
+function DialogHeader({
+  eyebrow,
+  onClose,
+  title,
+}: Readonly<{
+  eyebrow: string;
+  onClose: () => void;
+  title: string;
+}>) {
+  return (
+    <div className="mb-4 flex items-start justify-between gap-3">
+      <div>
+        <p className="text-xs font-medium text-slate-500">{eyebrow}</p>
+        <h2 className="text-xl font-semibold">{title}</h2>
+      </div>
+      <button
+        className="grid size-8 place-items-center rounded-md border border-stone-200 text-slate-600 hover:bg-stone-50"
+        type="button"
+        onClick={onClose}
+      >
+        <X className="size-4" />
+      </button>
+    </div>
+  );
+}
+
+function DialogActions({
+  onClose,
+  submitLabel,
+}: Readonly<{
+  onClose: () => void;
+  submitLabel: string;
+}>) {
+  return (
+    <div className="mt-5 flex justify-end gap-2">
+      <button
+        className="h-10 rounded-md border border-stone-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-stone-50"
+        type="button"
+        onClick={onClose}
+      >
+        取消
+      </button>
+      <button className="h-10 rounded-md bg-slate-950 px-4 text-sm font-medium text-white" type="submit">
+        {submitLabel}
+      </button>
     </div>
   );
 }
@@ -1364,6 +1677,10 @@ function formatNow() {
   }).format(new Date());
 }
 
+function normalizeAvatar(avatar: string, name: string) {
+  return (avatar.trim() || name.trim().slice(0, 1) || "A").slice(0, 2).toUpperCase();
+}
+
 function approvalCardClass(status: ApprovalStatus) {
   if (status === "pending") return "border-amber-200 bg-amber-50";
   if (status === "denied") return "border-rose-200 bg-rose-50";
@@ -1375,8 +1692,19 @@ function readInitialWorkspaceState(): PersistedWorkspaceState {
 
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
-    return stored ? (JSON.parse(stored) as PersistedWorkspaceState) : initialWorkspaceState;
+    return stored ? normalizeWorkspaceState(JSON.parse(stored) as Partial<PersistedWorkspaceState>) : initialWorkspaceState;
   } catch {
     return initialWorkspaceState;
   }
+}
+
+function normalizeWorkspaceState(state: Partial<PersistedWorkspaceState>): PersistedWorkspaceState {
+  return {
+    approvals: state.approvals ?? approvalSeed,
+    channels: state.channels ?? channelSeed,
+    members: state.members ?? memberSeed,
+    messages: state.messages ?? messages,
+    sessions: state.sessions ?? sessions,
+    tasks: state.tasks ?? tasks,
+  };
 }
