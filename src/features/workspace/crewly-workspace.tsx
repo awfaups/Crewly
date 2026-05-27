@@ -18,7 +18,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   approvals as approvalSeed,
@@ -443,8 +443,21 @@ function ChannelTimeline({
   onDecision: (id: string, status: ApprovalStatus) => void;
   onSelectTask: (task: Task) => void;
 }>) {
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const latestMessageId = channelMessages.at(-1)?.id;
+
+  useEffect(() => {
+    const timeline = timelineRef.current;
+    if (!timeline) return;
+
+    timeline.scrollTo({
+      top: timeline.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [channelMessages.length, latestMessageId]);
+
   return (
-    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+    <div ref={timelineRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
       {channelMessages.map((message) => {
         const author = members.find((member) => member.id === message.authorId) ?? members[0];
         const linkedTask = workspaceTasks.find((task) => task.id === message.linkedTaskId);
@@ -591,6 +604,19 @@ function ContextPanel({
   session: AgentSession;
   task: Task;
 }>) {
+  const sessionTimelineRef = useRef<HTMLDivElement>(null);
+  const latestSessionEventId = session.events.at(-1)?.id;
+
+  useEffect(() => {
+    const timeline = sessionTimelineRef.current;
+    if (!timeline) return;
+
+    timeline.scrollTo({
+      top: timeline.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [session.id, session.events.length, latestSessionEventId]);
+
   return (
     <div className="space-y-4">
       <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
@@ -640,7 +666,7 @@ function ContextPanel({
           </div>
           <SessionStatusBadge session={session} />
         </div>
-        <div className="space-y-3">
+        <div ref={sessionTimelineRef} className="max-h-72 space-y-3 overflow-y-auto pr-1">
           {session.events.map((event) => (
             <div key={event.id} className="flex gap-3">
               <span className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-full ${eventTone[event.type]}`}>
