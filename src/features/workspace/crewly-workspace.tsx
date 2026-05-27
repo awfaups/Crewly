@@ -11,13 +11,14 @@ import {
   LayoutDashboard,
   MessageSquareText,
   Minus,
+  RotateCcw,
   Send,
   ShieldCheck,
   Sparkles,
   Users,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
   approvals as approvalSeed,
@@ -34,10 +35,29 @@ import type {
   ApprovalStatus,
   Channel,
   Member,
+  Message,
   RuntimeEventType,
+  SessionStatus,
   Task,
   TaskStatus,
 } from "@/lib/types";
+
+type PersistedWorkspaceState = {
+  approvals: Approval[];
+  messages: Message[];
+  sessions: AgentSession[];
+  tasks: Task[];
+};
+
+const STORAGE_KEY = "crewly.workspace.v1";
+const taskStatusOrder: TaskStatus[] = ["todo", "doing", "review", "done"];
+
+const initialWorkspaceState: PersistedWorkspaceState = {
+  approvals: approvalSeed,
+  messages,
+  sessions,
+  tasks,
+};
 
 const statusLabel: Record<TaskStatus, string> = {
   todo: "待开始",
@@ -71,17 +91,28 @@ export function CrewlyWorkspace() {
   const [activeChannelId, setActiveChannelId] = useState(channels[0].id);
   const [selectedTaskId, setSelectedTaskId] = useState(tasks[0].id);
   const [selectedMemberId, setSelectedMemberId] = useState("builder");
-  const [approvals, setApprovals] = useState(approvalSeed);
+  const [workspaceState, setWorkspaceState] = useState(readInitialWorkspaceState);
+
+  const { approvals, messages: workspaceMessages, sessions: workspaceSessions, tasks: workspaceTasks } =
+    workspaceState;
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(workspaceState));
+    } catch {
+      // Demo persistence should not block the workspace when storage is unavailable.
+    }
+  }, [workspaceState]);
 
   const activeChannel = channels.find((channel) => channel.id === activeChannelId) ?? channels[0];
-  const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? tasks[0];
+  const selectedTask = workspaceTasks.find((task) => task.id === selectedTaskId) ?? workspaceTasks[0];
   const selectedSession =
-    sessions.find((session) => session.id === selectedTask.sessionId) ?? sessions[0];
+    workspaceSessions.find((session) => session.id === selectedTask.sessionId) ?? workspaceSessions[0];
   const selectedMember =
     members.find((member) => member.id === selectedMemberId) ??
     members.find((member) => member.id === selectedTask.assigneeId) ??
     members[0];
-  const channelMessages = messages.filter((message) => message.channelId === activeChannel.id);
+  const channelMessages = workspaceMessages.filter((message) => message.channelId === activeChannel.id);
   const taskApproval = approvals.find((approval) => approval.taskId === selectedTask.id);
   const pendingApprovals = approvals.filter((approval) => approval.status === "pending");
 
@@ -89,28 +120,113 @@ export function CrewlyWorkspace() {
     () =>
       (["todo", "doing", "review", "done"] as TaskStatus[]).map((status) => ({
         status,
-        items: tasks.filter((task) => task.status === status),
+        items: workspaceTasks.filter((task) => task.status === status),
       })),
-    [],
+    [workspaceTasks],
   );
 
   function decideApproval(id: string, status: ApprovalStatus) {
-    setApprovals((current) =>
-      current.map((approval) =>
-        approval.id === id
-          ? {
-              ...approval,
-              status,
-            }
-          : approval,
-      ),
-    );
+    setWorkspaceState((current) => {
+      const approval = current.approvals.find((item) => item.id === id);
+      if (!approval) return current;
+
+      const linkedTask = current.tasks.find((task) => task.id === approval.taskId);
+      const nextTaskStatus = status === "approved" ? "review" : "doing";
+      const nextSessionStatus: SessionStatus = status === "approved" ? "completed" : "running";
+      const eventTime = formatNow();
+      const eventTitle = status === "approved" ? "审批已通过" : "审批被拒绝";
+      const eventDetail =
+        status === "approved"
+          ? "相关任务已推进到待验收，等待人类成员做最终检查。"
+          : "相关任务已回到进行中，需要 AI 队友根据反馈继续修正。";
+
+      return {
+        ...current,
+        approvals: current.approvals.map((item) => (item.id === id ? { ...item, status } : item)),
+        tasks: linkedTask
+          ? current.tasks.map((task) =>
+              task.id === linkedTask.id
+                ? {
+                    ...task,
+                    status: nextTaskStatus,
+                  }
+                : task,
+            )
+          : current.tasks,
+        sessions: linkedTask
+          ? current.sessions.map((session) =>
+              session.id === linkedTask.sessionId
+                ? {
+                    ...session,
+                    status: nextSessionStatus,
+                    events: [
+                      ...session.events,
+                      {
+                        id: `event-${Date.now()}`,
+                        type: "result",
+                        title: eventTitle,
+                        detail: eventDetail,
+                        time: eventTime,
+                      },
+                    ],
+                  }
+                : session,
+            )
+          : current.sessions,
+      };
+    });
   }
 
   function selectTask(task: Task) {
     setSelectedTaskId(task.id);
     setActiveChannelId(task.channelId);
     setSelectedMemberId(task.assigneeId);
+  }
+
+  function advanceTaskStatus(taskId: string) {
+    setWorkspaceState((current) => ({
+      ...current,
+      tasks: current.tasks.map((task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              status: nextTaskStatus(task.status),
+            }
+          : task,
+      ),
+    }));
+  }
+
+  function sendMessage(body: string) {
+    const trimmed = body.trim();
+    if (!trimmed) return;
+
+    setWorkspaceState((current) => ({
+      ...current,
+      messages: [
+        ...current.messages,
+        {
+          id: `message-${Date.now()}`,
+          authorId: "lin",
+          body: trimmed,
+          channelId: activeChannel.id,
+          time: formatNow(),
+        },
+      ],
+    }));
+  }
+
+  function resetDemoData() {
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Ignore storage failures in demo mode.
+    }
+
+    setWorkspaceState(initialWorkspaceState);
+    setSelectedTaskId(tasks[0].id);
+    setSelectedMemberId("builder");
+    setActiveChannelId(channels[0].id);
   }
 
   return (
@@ -166,6 +282,13 @@ export function CrewlyWorkspace() {
             <SidebarShortcut icon={<Activity className="size-4" />} label="运行轨迹" />
             <SidebarShortcut icon={<Inbox className="size-4" />} label="审批队列" />
           </SidebarSection>
+          <button
+            className="mt-5 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-stone-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-stone-50"
+            onClick={resetDemoData}
+          >
+            <RotateCcw className="size-4" />
+            重置演示数据
+          </button>
         </aside>
 
         <section className="flex min-w-0 flex-col bg-[#fbfaf7]">
@@ -175,12 +298,18 @@ export function CrewlyWorkspace() {
               <ChannelTimeline
                 approvals={approvals}
                 messages={channelMessages}
+                tasks={workspaceTasks}
                 onDecision={decideApproval}
                 onSelectTask={selectTask}
               />
-              <Composer />
+              <Composer onSend={sendMessage} />
             </div>
-            <TaskBoard groups={taskGroups} selectedTaskId={selectedTask.id} onSelectTask={selectTask} />
+            <TaskBoard
+              groups={taskGroups}
+              selectedTaskId={selectedTask.id}
+              taskCount={workspaceTasks.length}
+              onSelectTask={selectTask}
+            />
           </div>
         </section>
 
@@ -189,6 +318,7 @@ export function CrewlyWorkspace() {
             approval={taskApproval}
             member={selectedMember}
             onDecision={decideApproval}
+            onTaskStatusAdvance={advanceTaskStatus}
             session={selectedSession}
             task={selectedTask}
           />
@@ -303,11 +433,13 @@ function Badge({
 function ChannelTimeline({
   approvals,
   messages: channelMessages,
+  tasks: workspaceTasks,
   onDecision,
   onSelectTask,
 }: Readonly<{
   approvals: Approval[];
-  messages: typeof messages;
+  messages: Message[];
+  tasks: Task[];
   onDecision: (id: string, status: ApprovalStatus) => void;
   onSelectTask: (task: Task) => void;
 }>) {
@@ -315,7 +447,7 @@ function ChannelTimeline({
     <div className="space-y-3">
       {channelMessages.map((message) => {
         const author = members.find((member) => member.id === message.authorId) ?? members[0];
-        const linkedTask = tasks.find((task) => task.id === message.linkedTaskId);
+        const linkedTask = workspaceTasks.find((task) => task.id === message.linkedTaskId);
         const linkedApproval = approvals.find((approval) => approval.id === message.linkedApprovalId);
 
         return (
@@ -355,17 +487,35 @@ function ChannelTimeline({
   );
 }
 
-function Composer() {
+function Composer({ onSend }: Readonly<{ onSend: (body: string) => void }>) {
+  const [value, setValue] = useState("");
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSend(value);
+    setValue("");
+  }
+
   return (
-    <div className="mt-4 rounded-lg border border-stone-200 bg-white p-3 shadow-sm">
+    <form className="mt-4 rounded-lg border border-stone-200 bg-white p-3 shadow-sm" onSubmit={handleSubmit}>
       <div className="flex min-h-14 items-center gap-3 rounded-md bg-stone-50 px-3 text-sm text-slate-500">
         <MessageSquareText className="size-4 shrink-0" />
-        <span className="flex-1">写下需求、同步进展，或 @AI 队友分配任务</span>
-        <button className="grid size-9 place-items-center rounded-md bg-slate-950 text-white" title="发送">
+        <input
+          className="min-w-0 flex-1 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
+          placeholder="写下需求、同步进展，或 @AI 队友分配任务"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        />
+        <button
+          className="grid size-9 place-items-center rounded-md bg-slate-950 text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+          disabled={!value.trim()}
+          title="发送"
+          type="submit"
+        >
           <Send className="size-4" />
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 
@@ -373,16 +523,18 @@ function TaskBoard({
   groups,
   onSelectTask,
   selectedTaskId,
+  taskCount,
 }: Readonly<{
   groups: { status: TaskStatus; items: Task[] }[];
   onSelectTask: (task: Task) => void;
   selectedTaskId: string;
+  taskCount: number;
 }>) {
   return (
     <section className="rounded-lg border border-stone-200 bg-white p-3 shadow-sm">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="font-semibold">任务看板</h2>
-        <span className="text-xs text-slate-500">{tasks.length} 个任务</span>
+        <span className="text-xs text-slate-500">{taskCount} 个任务</span>
       </div>
       <div className="space-y-3">
         {groups.map((group) => (
@@ -428,12 +580,14 @@ function ContextPanel({
   approval,
   member,
   onDecision,
+  onTaskStatusAdvance,
   session,
   task,
 }: Readonly<{
   approval?: Approval;
   member: Member;
   onDecision: (id: string, status: ApprovalStatus) => void;
+  onTaskStatusAdvance: (taskId: string) => void;
   session: AgentSession;
   task: Task;
 }>) {
@@ -455,6 +609,13 @@ function ContextPanel({
           <InfoTile label="标签" value={task.label} />
           <InfoTile label="截止" value={task.due} />
         </div>
+        <button
+          className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-medium text-white hover:bg-slate-800"
+          onClick={() => onTaskStatusAdvance(task.id)}
+        >
+          <ChevronRight className="size-4" />
+          推进到{statusLabel[nextTaskStatus(task.status)]}
+        </button>
       </section>
 
       <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
@@ -513,11 +674,7 @@ function ApprovalCard({
 }>) {
   return (
     <section
-      className={`mt-3 rounded-lg border p-4 ${
-        approval.status === "pending"
-          ? "border-amber-200 bg-amber-50"
-          : "border-emerald-200 bg-emerald-50"
-      }`}
+      className={`mt-3 rounded-lg border p-4 ${approvalCardClass(approval.status)}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -606,4 +763,34 @@ function eventIcon(type: RuntimeEventType) {
   if (type === "result") return <Check className="size-3.5" />;
   if (type === "approval") return <ShieldCheck className="size-3.5" />;
   return <Minus className="size-3.5" />;
+}
+
+function nextTaskStatus(status: TaskStatus): TaskStatus {
+  const currentIndex = taskStatusOrder.indexOf(status);
+  return taskStatusOrder[(currentIndex + 1) % taskStatusOrder.length];
+}
+
+function formatNow() {
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date());
+}
+
+function approvalCardClass(status: ApprovalStatus) {
+  if (status === "pending") return "border-amber-200 bg-amber-50";
+  if (status === "denied") return "border-rose-200 bg-rose-50";
+  return "border-emerald-200 bg-emerald-50";
+}
+
+function readInitialWorkspaceState(): PersistedWorkspaceState {
+  if (typeof window === "undefined") return initialWorkspaceState;
+
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    return stored ? (JSON.parse(stored) as PersistedWorkspaceState) : initialWorkspaceState;
+  } catch {
+    return initialWorkspaceState;
+  }
 }
