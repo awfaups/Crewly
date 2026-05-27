@@ -65,6 +65,8 @@ type PersistedWorkspaceState = {
 
 type TaskFormMode = "create" | "edit";
 
+type MemberFormMode = "create" | "edit";
+
 type TaskFormState = {
   assigneeId: string;
   due: string;
@@ -218,6 +220,8 @@ export function CrewlyWorkspace() {
   const [channelFormOpen, setChannelFormOpen] = useState(false);
   const [channelFormValues, setChannelFormValues] = useState<ChannelFormState>(emptyChannelForm);
   const [memberFormOpen, setMemberFormOpen] = useState(false);
+  const [memberFormMode, setMemberFormMode] = useState<MemberFormMode>("create");
+  const [memberFormMemberId, setMemberFormMemberId] = useState<string | null>(null);
   const [memberFormValues, setMemberFormValues] = useState<MemberFormState>(emptyMemberForm);
   const [taskFormMode, setTaskFormMode] = useState<TaskFormMode>("create");
   const [taskFormOpen, setTaskFormOpen] = useState(false);
@@ -251,6 +255,8 @@ export function CrewlyWorkspace() {
     workspaceMembers.find((member) => member.id === selectedMemberId) ??
     workspaceMembers.find((member) => member.id === selectedTask.assigneeId) ??
     workspaceMembers[0];
+  const activeAiMembers = workspaceMembers.filter((member) => member.kind === "ai" && !member.archived);
+  const assignableMembers = workspaceMembers.filter((member) => !member.archived);
   const channelMessages = workspaceMessages.filter((message) => message.channelId === activeChannel.id);
   const taskApproval = approvals.find((approval) => approval.taskId === selectedTask.id);
   const pendingApprovals = approvals.filter((approval) => approval.status === "pending");
@@ -270,7 +276,18 @@ export function CrewlyWorkspace() {
   }
 
   function openCreateMemberForm() {
+    setMemberFormMode("create");
+    setMemberFormMemberId(null);
     setMemberFormValues(emptyMemberForm);
+    setMemberFormOpen(true);
+  }
+
+  function openEditMemberForm(member: Member) {
+    if (member.kind !== "ai") return;
+
+    setMemberFormMode("edit");
+    setMemberFormMemberId(member.id);
+    setMemberFormValues(memberToFormState(member));
     setMemberFormOpen(true);
   }
 
@@ -306,6 +323,25 @@ export function CrewlyWorkspace() {
     const name = values.name.trim();
     if (!name) return;
 
+    if (memberFormMode === "edit" && memberFormMemberId) {
+      setWorkspaceState((current) => ({
+        ...current,
+        members: current.members.map((member) =>
+          member.id === memberFormMemberId
+            ? {
+                ...member,
+                name,
+                role: values.role.trim() || "AI 协作队友",
+                avatar: normalizeAvatar(values.avatar, name),
+                modelConfig: createModelConfig(values),
+              }
+            : member,
+        ),
+      }));
+      setMemberFormOpen(false);
+      return;
+    }
+
     const memberId = `ai-${Date.now()}`;
     const member: Member = {
       id: memberId,
@@ -323,6 +359,27 @@ export function CrewlyWorkspace() {
     }));
     setSelectedMemberId(memberId);
     setMemberFormOpen(false);
+  }
+
+  function archiveMember(memberId: string) {
+    const nextMember = activeAiMembers.find((member) => member.id !== memberId);
+
+    setWorkspaceState((current) => ({
+      ...current,
+      members: current.members.map((member) =>
+        member.id === memberId
+          ? {
+              ...member,
+              archived: true,
+              presence: "away",
+            }
+          : member,
+      ),
+    }));
+
+    if (selectedMemberId === memberId && nextMember) {
+      setSelectedMemberId(nextMember.id);
+    }
   }
 
   function decideApproval(id: string, status: ApprovalStatus) {
@@ -402,7 +459,7 @@ export function CrewlyWorkspace() {
     setTaskFormTaskId(null);
     setTaskFormValues({
       ...emptyTaskForm,
-      assigneeId: selectedMember.kind === "ai" ? selectedMember.id : "builder",
+      assigneeId: selectedMember.kind === "ai" && !selectedMember.archived ? selectedMember.id : getDefaultAssigneeId(assignableMembers),
       ...seed,
     });
     setTaskFormOpen(true);
@@ -634,8 +691,7 @@ export function CrewlyWorkspace() {
             </button>
           </SidebarSection>
           <SidebarSection title="AI 队友">
-            {workspaceMembers
-              .filter((member) => member.kind === "ai")
+            {activeAiMembers
               .map((member) => (
                 <button
                   key={member.id}
@@ -686,7 +742,7 @@ export function CrewlyWorkspace() {
 
         <section className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#fbfaf7]">
           <TopBar
-            aiMemberCount={workspaceMembers.filter((member) => member.kind === "ai").length}
+            aiMemberCount={activeAiMembers.length}
             channel={activeChannel}
             onlineMemberCount={workspaceMembers.filter((member) => member.presence === "online").length}
             pendingCount={pendingApprovals.length}
@@ -719,7 +775,9 @@ export function CrewlyWorkspace() {
             approval={taskApproval}
             member={selectedMember}
             onArchiveTask={archiveTask}
+            onArchiveMember={archiveMember}
             onDecision={decideApproval}
+            onEditMember={openEditMemberForm}
             onEditTask={openEditTaskForm}
             onTaskStatusAdvance={advanceTaskStatus}
             session={selectedSession}
@@ -731,7 +789,7 @@ export function CrewlyWorkspace() {
         <TaskFormDialog
           mode={taskFormMode}
           values={taskFormValues}
-          members={workspaceMembers}
+          members={assignableMembers}
           onChange={setTaskFormValues}
           onClose={() => setTaskFormOpen(false)}
           onSubmit={saveTaskForm}
@@ -747,6 +805,7 @@ export function CrewlyWorkspace() {
       ) : null}
       {memberFormOpen ? (
         <MemberFormDialog
+          mode={memberFormMode}
           values={memberFormValues}
           onChange={setMemberFormValues}
           onClose={() => setMemberFormOpen(false)}
@@ -1098,8 +1157,10 @@ function TaskBoard({
 function ContextPanel({
   approval,
   member,
+  onArchiveMember,
   onArchiveTask,
   onDecision,
+  onEditMember,
   onEditTask,
   onTaskStatusAdvance,
   session,
@@ -1107,8 +1168,10 @@ function ContextPanel({
 }: Readonly<{
   approval?: Approval;
   member: Member;
+  onArchiveMember: (memberId: string) => void;
   onArchiveTask: (taskId: string) => void;
   onDecision: (id: string, status: ApprovalStatus) => void;
+  onEditMember: (member: Member) => void;
   onEditTask: (task: Task) => void;
   onTaskStatusAdvance: (taskId: string) => void;
   session: AgentSession;
@@ -1183,6 +1246,24 @@ function ContextPanel({
           </div>
         </div>
         {member.kind === "ai" ? <ModelConfigSummary config={member.modelConfig ?? defaultModelConfig} /> : null}
+        {member.kind === "ai" ? (
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-stone-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-stone-50"
+              onClick={() => onEditMember(member)}
+            >
+              <Edit3 className="size-4" />
+              编辑配置
+            </button>
+            <button
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-stone-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-stone-50"
+              onClick={() => onArchiveMember(member.id)}
+            >
+              <Archive className="size-4" />
+              停用
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
@@ -1436,11 +1517,13 @@ function ChannelFormDialog({
 }
 
 function MemberFormDialog({
+  mode,
   onChange,
   onClose,
   onSubmit,
   values,
 }: Readonly<{
+  mode: MemberFormMode;
   onChange: (values: MemberFormState) => void;
   onClose: () => void;
   onSubmit: (values: MemberFormState) => void;
@@ -1461,7 +1544,7 @@ function MemberFormDialog({
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4">
       <form className="flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col rounded-lg bg-white p-5 shadow-xl" onSubmit={handleSubmit}>
-        <DialogHeader eyebrow="AI 队友" title="新建 AI 队友" onClose={onClose} />
+        <DialogHeader eyebrow="AI 队友" title={mode === "create" ? "新建 AI 队友" : "编辑 AI 队友"} onClose={onClose} />
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
           <label className="block">
             <span className="text-sm font-medium text-slate-700">名称</span>
@@ -1647,7 +1730,7 @@ function MemberFormDialog({
             </label>
           </div>
         </div>
-        <DialogActions submitLabel="创建 AI 队友" onClose={onClose} />
+        <DialogActions submitLabel={mode === "create" ? "创建 AI 队友" : "保存配置"} onClose={onClose} />
       </form>
     </div>
   );
@@ -1978,6 +2061,32 @@ function normalizeAvatar(avatar: string, name: string) {
   return (avatar.trim() || name.trim().slice(0, 1) || "A").slice(0, 2).toUpperCase();
 }
 
+function memberToFormState(member: Member): MemberFormState {
+  const config = normalizeModelConfig(member.modelConfig);
+
+  return {
+    apiKeyRef: config.apiKeyRef,
+    avatar: member.avatar,
+    authType: config.authType,
+    baseUrl: config.baseUrl,
+    endpointHint: config.endpointHint ?? "",
+    environment: config.environment,
+    functionCalling: config.capabilities.functionCalling,
+    imageInput: config.capabilities.imageInput,
+    jsonMode: config.capabilities.jsonMode,
+    maxTokens: String(config.maxTokens),
+    modelName: config.model,
+    modelProvider: config.provider,
+    name: member.name,
+    organizationId: config.organizationId ?? "",
+    projectId: config.projectId ?? "",
+    role: member.role,
+    streaming: config.capabilities.streaming,
+    temperature: String(config.temperature),
+    timeoutSeconds: String(config.timeoutSeconds),
+  };
+}
+
 function createModelConfig(values: MemberFormState): ModelConfig {
   const organizationId = values.organizationId.trim();
   const projectId = values.projectId.trim();
@@ -2024,6 +2133,10 @@ function parseBoundedNumber(value: string, fallback: number, min: number, max: n
   const parsed = Number.parseFloat(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(Math.max(parsed, min), max);
+}
+
+function getDefaultAssigneeId(members: Member[]) {
+  return members.find((member) => member.id === "builder")?.id ?? members[0]?.id ?? "builder";
 }
 
 function approvalCardClass(status: ApprovalStatus) {

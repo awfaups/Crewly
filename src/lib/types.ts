@@ -74,6 +74,7 @@ export type Member = {
   role: string;
   avatar: string;
   presence: Presence;
+  archived?: boolean;
   modelConfig?: ModelConfig;
 };
 
