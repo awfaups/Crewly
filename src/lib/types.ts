@@ -2,6 +2,15 @@ export type MemberKind = "human" | "ai";
 
 export type Presence = "online" | "busy" | "away";
 
+export type ModelProvider =
+  | "OpenAI"
+  | "Anthropic"
+  | "DeepSeek"
+  | "通义千问"
+  | "智谱 AI"
+  | "Ollama"
+  | "自定义";
+
 export type TaskStatus = "todo" | "doing" | "review" | "done";
 
 export type TaskPriority = "高" | "中" | "低";
@@ -33,6 +42,12 @@ export type Workspace = {
   activeMembers: number;
 };
 
+export type ModelConfig = {
+  provider: ModelProvider;
+  model: string;
+  endpointHint?: string;
+};
+
 export type Member = {
   id: string;
   name: string;
@@ -40,6 +55,7 @@ export type Member = {
   role: string;
   avatar: string;
   presence: Presence;
+  modelConfig?: ModelConfig;
 };
 
 export type Channel = {

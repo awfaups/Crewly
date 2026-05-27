@@ -43,6 +43,8 @@ import type {
   Channel,
   Member,
   Message,
+  ModelConfig,
+  ModelProvider,
   RuntimeEventType,
   SessionStatus,
   Task,
@@ -77,6 +79,9 @@ type ChannelFormState = {
 
 type MemberFormState = {
   avatar: string;
+  endpointHint: string;
+  modelName: string;
+  modelProvider: ModelProvider;
   name: string;
   role: string;
 };
@@ -110,9 +115,28 @@ const emptyChannelForm: ChannelFormState = {
 
 const emptyMemberForm: MemberFormState = {
   avatar: "",
+  endpointHint: "演示配置，密钥由后端安全管理",
+  modelName: "gpt-5",
+  modelProvider: "OpenAI",
   name: "",
   role: "",
 };
+
+const defaultModelConfig: ModelConfig = {
+  provider: "OpenAI",
+  model: "gpt-5",
+  endpointHint: "演示配置，密钥由后端安全管理",
+};
+
+const modelProviders: ModelProvider[] = [
+  "OpenAI",
+  "Anthropic",
+  "DeepSeek",
+  "通义千问",
+  "智谱 AI",
+  "Ollama",
+  "自定义",
+];
 
 const statusLabel: Record<TaskStatus, string> = {
   todo: "待开始",
@@ -245,6 +269,11 @@ export function CrewlyWorkspace() {
       role: values.role.trim() || "AI 协作队友",
       avatar: normalizeAvatar(values.avatar, name),
       presence: "online",
+      modelConfig: {
+        provider: values.modelProvider,
+        model: values.modelName.trim() || defaultModelConfig.model,
+        endpointHint: values.endpointHint.trim() || defaultModelConfig.endpointHint,
+      },
     };
 
     setWorkspaceState((current) => ({
@@ -1112,6 +1141,7 @@ function ContextPanel({
             <p className="truncate text-sm text-slate-500">{member.role}</p>
           </div>
         </div>
+        {member.kind === "ai" ? <ModelConfigSummary config={member.modelConfig ?? defaultModelConfig} /> : null}
       </section>
 
       <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
@@ -1421,6 +1451,46 @@ function MemberFormDialog({
               onChange={(event) => update("avatar", event.target.value)}
             />
           </label>
+          <div className="rounded-md border border-stone-200 bg-stone-50 p-3">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">大模型配置</p>
+                <p className="mt-1 text-xs text-slate-500">仅保存模型元数据，不在本地保存 API Key。</p>
+              </div>
+              <Bot className="size-4 shrink-0 text-slate-500" />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <TaskSelect
+                label="模型提供商"
+                value={values.modelProvider}
+                onChange={(value) => update("modelProvider", value as ModelProvider)}
+              >
+                {modelProviders.map((provider) => (
+                  <option key={provider} value={provider}>
+                    {provider}
+                  </option>
+                ))}
+              </TaskSelect>
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">模型名称</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm outline-none focus:border-slate-950"
+                  placeholder="例如：gpt-5、deepseek-chat"
+                  value={values.modelName}
+                  onChange={(event) => update("modelName", event.target.value)}
+                />
+              </label>
+            </div>
+            <label className="mt-3 block">
+              <span className="text-sm font-medium text-slate-700">接入说明</span>
+              <textarea
+                className="mt-1 min-h-20 w-full resize-none rounded-md border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-950"
+                placeholder="例如：通过后端安全代理调用，密钥由服务端托管"
+                value={values.endpointHint}
+                onChange={(event) => update("endpointHint", event.target.value)}
+              />
+            </label>
+          </div>
         </div>
         <DialogActions submitLabel="创建 AI 队友" onClose={onClose} />
       </form>
@@ -1591,6 +1661,22 @@ function InfoTile({
   );
 }
 
+function ModelConfigSummary({ config }: Readonly<{ config: ModelConfig }>) {
+  return (
+    <div className="mt-4 rounded-md border border-stone-200 bg-stone-50 p-3">
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <InfoTile label="模型提供商" value={config.provider} />
+        <InfoTile label="模型名称" value={config.model} />
+      </div>
+      {config.endpointHint ? (
+        <p className="mt-3 text-xs leading-5 text-slate-500">
+          {config.endpointHint}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function SessionStatusBadge({ session }: Readonly<{ session: AgentSession }>) {
   const label =
     session.status === "running"
@@ -1702,9 +1788,20 @@ function normalizeWorkspaceState(state: Partial<PersistedWorkspaceState>): Persi
   return {
     approvals: state.approvals ?? approvalSeed,
     channels: state.channels ?? channelSeed,
-    members: state.members ?? memberSeed,
+    members: normalizeMembers(state.members ?? memberSeed),
     messages: state.messages ?? messages,
     sessions: state.sessions ?? sessions,
     tasks: state.tasks ?? tasks,
   };
+}
+
+function normalizeMembers(items: Member[]) {
+  return items.map((member) =>
+    member.kind === "ai" && !member.modelConfig
+      ? {
+          ...member,
+          modelConfig: defaultModelConfig,
+        }
+      : member,
+  );
 }
