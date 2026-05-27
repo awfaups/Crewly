@@ -11,6 +11,10 @@ export type ModelProvider =
   | "Ollama"
   | "自定义";
 
+export type ModelAuthType = "Bearer Token" | "API Key Header" | "无认证" | "自定义";
+
+export type ModelEnvironment = "开发" | "测试" | "生产";
+
 export type TaskStatus = "todo" | "doing" | "review" | "done";
 
 export type TaskPriority = "高" | "中" | "低";
@@ -43,9 +47,24 @@ export type Workspace = {
 };
 
 export type ModelConfig = {
-  provider: ModelProvider;
-  model: string;
+  apiKeyRef: string;
+  authType: ModelAuthType;
+  baseUrl: string;
+  capabilities: {
+    functionCalling: boolean;
+    imageInput: boolean;
+    jsonMode: boolean;
+    streaming: boolean;
+  };
   endpointHint?: string;
+  environment: ModelEnvironment;
+  maxTokens: number;
+  model: string;
+  organizationId?: string;
+  projectId?: string;
+  provider: ModelProvider;
+  temperature: number;
+  timeoutSeconds: number;
 };
 
 export type Member = {

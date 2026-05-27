@@ -43,7 +43,9 @@ import type {
   Channel,
   Member,
   Message,
+  ModelAuthType,
   ModelConfig,
+  ModelEnvironment,
   ModelProvider,
   RuntimeEventType,
   SessionStatus,
@@ -78,12 +80,25 @@ type ChannelFormState = {
 };
 
 type MemberFormState = {
+  apiKeyRef: string;
   avatar: string;
+  authType: ModelAuthType;
+  baseUrl: string;
   endpointHint: string;
+  environment: ModelEnvironment;
+  functionCalling: boolean;
+  imageInput: boolean;
+  jsonMode: boolean;
+  maxTokens: string;
   modelName: string;
   modelProvider: ModelProvider;
   name: string;
+  organizationId: string;
+  projectId: string;
   role: string;
+  streaming: boolean;
+  temperature: string;
+  timeoutSeconds: string;
 };
 
 const STORAGE_KEY = "crewly.workspace.v1";
@@ -114,18 +129,44 @@ const emptyChannelForm: ChannelFormState = {
 };
 
 const emptyMemberForm: MemberFormState = {
+  apiKeyRef: "OPENAI_API_KEY",
   avatar: "",
-  endpointHint: "演示配置，密钥由后端安全管理",
+  authType: "Bearer Token",
+  baseUrl: "https://api.openai.com/v1",
+  endpointHint: "通过服务端代理调用，密钥由后端安全管理",
+  environment: "开发",
+  functionCalling: true,
+  imageInput: true,
+  jsonMode: true,
+  maxTokens: "4096",
   modelName: "gpt-5",
   modelProvider: "OpenAI",
   name: "",
+  organizationId: "",
+  projectId: "",
   role: "",
+  streaming: true,
+  temperature: "0.7",
+  timeoutSeconds: "60",
 };
 
 const defaultModelConfig: ModelConfig = {
+  apiKeyRef: "OPENAI_API_KEY",
+  authType: "Bearer Token",
+  baseUrl: "https://api.openai.com/v1",
+  capabilities: {
+    functionCalling: true,
+    imageInput: true,
+    jsonMode: true,
+    streaming: true,
+  },
+  endpointHint: "通过服务端代理调用，密钥由后端安全管理",
+  environment: "开发",
+  maxTokens: 4096,
   provider: "OpenAI",
   model: "gpt-5",
-  endpointHint: "演示配置，密钥由后端安全管理",
+  temperature: 0.7,
+  timeoutSeconds: 60,
 };
 
 const modelProviders: ModelProvider[] = [
@@ -137,6 +178,10 @@ const modelProviders: ModelProvider[] = [
   "Ollama",
   "自定义",
 ];
+
+const authTypes: ModelAuthType[] = ["Bearer Token", "API Key Header", "无认证", "自定义"];
+
+const modelEnvironments: ModelEnvironment[] = ["开发", "测试", "生产"];
 
 const statusLabel: Record<TaskStatus, string> = {
   todo: "待开始",
@@ -269,11 +314,7 @@ export function CrewlyWorkspace() {
       role: values.role.trim() || "AI 协作队友",
       avatar: normalizeAvatar(values.avatar, name),
       presence: "online",
-      modelConfig: {
-        provider: values.modelProvider,
-        model: values.modelName.trim() || defaultModelConfig.model,
-        endpointHint: values.endpointHint.trim() || defaultModelConfig.endpointHint,
-      },
+      modelConfig: createModelConfig(values),
     };
 
     setWorkspaceState((current) => ({
@@ -1419,9 +1460,9 @@ function MemberFormDialog({
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4">
-      <form className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl" onSubmit={handleSubmit}>
+      <form className="flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col rounded-lg bg-white p-5 shadow-xl" onSubmit={handleSubmit}>
         <DialogHeader eyebrow="AI 队友" title="新建 AI 队友" onClose={onClose} />
-        <div className="space-y-3">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
           <label className="block">
             <span className="text-sm font-medium text-slate-700">名称</span>
             <input
@@ -1455,7 +1496,7 @@ function MemberFormDialog({
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-slate-800">大模型配置</p>
-                <p className="mt-1 text-xs text-slate-500">仅保存模型元数据，不在本地保存 API Key。</p>
+                <p className="mt-1 text-xs text-slate-500">按真实接入字段配置，仅保存密钥引用名，不保存 API Key 明文。</p>
               </div>
               <Bot className="size-4 shrink-0 text-slate-500" />
             </div>
@@ -1471,6 +1512,17 @@ function MemberFormDialog({
                   </option>
                 ))}
               </TaskSelect>
+              <TaskSelect
+                label="运行环境"
+                value={values.environment}
+                onChange={(value) => update("environment", value as ModelEnvironment)}
+              >
+                {modelEnvironments.map((environment) => (
+                  <option key={environment} value={environment}>
+                    {environment}
+                  </option>
+                ))}
+              </TaskSelect>
               <label className="block">
                 <span className="text-sm font-medium text-slate-700">模型名称</span>
                 <input
@@ -1480,6 +1532,109 @@ function MemberFormDialog({
                   onChange={(event) => update("modelName", event.target.value)}
                 />
               </label>
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">Base URL</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm outline-none focus:border-slate-950"
+                  placeholder="例如：https://api.openai.com/v1"
+                  value={values.baseUrl}
+                  onChange={(event) => update("baseUrl", event.target.value)}
+                />
+              </label>
+              <TaskSelect
+                label="认证方式"
+                value={values.authType}
+                onChange={(value) => update("authType", value as ModelAuthType)}
+              >
+                {authTypes.map((authType) => (
+                  <option key={authType} value={authType}>
+                    {authType}
+                  </option>
+                ))}
+              </TaskSelect>
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">密钥引用名</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm outline-none focus:border-slate-950"
+                  placeholder="例如：OPENAI_API_KEY"
+                  value={values.apiKeyRef}
+                  onChange={(event) => update("apiKeyRef", event.target.value)}
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">组织 ID</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm outline-none focus:border-slate-950"
+                  placeholder="可选"
+                  value={values.organizationId}
+                  onChange={(event) => update("organizationId", event.target.value)}
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">项目 ID</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm outline-none focus:border-slate-950"
+                  placeholder="可选"
+                  value={values.projectId}
+                  onChange={(event) => update("projectId", event.target.value)}
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">Temperature</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm outline-none focus:border-slate-950"
+                  max="2"
+                  min="0"
+                  step="0.1"
+                  type="number"
+                  value={values.temperature}
+                  onChange={(event) => update("temperature", event.target.value)}
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">最大 Tokens</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm outline-none focus:border-slate-950"
+                  min="1"
+                  step="1"
+                  type="number"
+                  value={values.maxTokens}
+                  onChange={(event) => update("maxTokens", event.target.value)}
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">超时秒数</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm outline-none focus:border-slate-950"
+                  min="1"
+                  step="1"
+                  type="number"
+                  value={values.timeoutSeconds}
+                  onChange={(event) => update("timeoutSeconds", event.target.value)}
+                />
+              </label>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+              <ModelCapabilityCheckbox
+                checked={values.streaming}
+                label="流式输出"
+                onChange={(checked) => update("streaming", checked)}
+              />
+              <ModelCapabilityCheckbox
+                checked={values.functionCalling}
+                label="工具调用"
+                onChange={(checked) => update("functionCalling", checked)}
+              />
+              <ModelCapabilityCheckbox
+                checked={values.jsonMode}
+                label="JSON 模式"
+                onChange={(checked) => update("jsonMode", checked)}
+              />
+              <ModelCapabilityCheckbox
+                checked={values.imageInput}
+                label="图片输入"
+                onChange={(checked) => update("imageInput", checked)}
+              />
             </div>
             <label className="mt-3 block">
               <span className="text-sm font-medium text-slate-700">接入说明</span>
@@ -1544,6 +1699,28 @@ function DialogActions({
         {submitLabel}
       </button>
     </div>
+  );
+}
+
+function ModelCapabilityCheckbox({
+  checked,
+  label,
+  onChange,
+}: Readonly<{
+  checked: boolean;
+  label: string;
+  onChange: (checked: boolean) => void;
+}>) {
+  return (
+    <label className="flex h-10 items-center gap-2 rounded-md border border-stone-200 bg-white px-3 text-slate-700">
+      <input
+        checked={checked}
+        className="size-4 accent-slate-950"
+        type="checkbox"
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span>{label}</span>
+    </label>
   );
 }
 
@@ -1662,12 +1839,46 @@ function InfoTile({
 }
 
 function ModelConfigSummary({ config }: Readonly<{ config: ModelConfig }>) {
+  const capabilityLabels = [
+    config.capabilities.streaming ? "流式输出" : null,
+    config.capabilities.functionCalling ? "工具调用" : null,
+    config.capabilities.jsonMode ? "JSON 模式" : null,
+    config.capabilities.imageInput ? "图片输入" : null,
+  ].filter(Boolean);
+
   return (
     <div className="mt-4 rounded-md border border-stone-200 bg-stone-50 p-3">
       <div className="grid grid-cols-2 gap-2 text-xs">
         <InfoTile label="模型提供商" value={config.provider} />
         <InfoTile label="模型名称" value={config.model} />
+        <InfoTile label="运行环境" value={config.environment} />
+        <InfoTile label="认证方式" value={config.authType} />
+        <InfoTile label="密钥引用" value={config.apiKeyRef || "未配置"} />
+        <InfoTile label="超时" value={`${config.timeoutSeconds}s`} />
       </div>
+      <div className="mt-3 rounded-md bg-white p-2 text-xs">
+        <p className="text-slate-500">Base URL</p>
+        <p className="mt-1 truncate font-medium text-slate-700">{config.baseUrl}</p>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+        <InfoTile label="Temperature" value={String(config.temperature)} />
+        <InfoTile label="最大 Tokens" value={String(config.maxTokens)} />
+      </div>
+      {config.organizationId || config.projectId ? (
+        <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+          {config.organizationId ? <InfoTile label="组织 ID" value={config.organizationId} /> : null}
+          {config.projectId ? <InfoTile label="项目 ID" value={config.projectId} /> : null}
+        </div>
+      ) : null}
+      {capabilityLabels.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {capabilityLabels.map((label) => (
+            <span key={label} className="rounded-md bg-white px-2 py-1 text-xs font-medium text-slate-600">
+              {label}
+            </span>
+          ))}
+        </div>
+      ) : null}
       {config.endpointHint ? (
         <p className="mt-3 text-xs leading-5 text-slate-500">
           {config.endpointHint}
@@ -1767,6 +1978,54 @@ function normalizeAvatar(avatar: string, name: string) {
   return (avatar.trim() || name.trim().slice(0, 1) || "A").slice(0, 2).toUpperCase();
 }
 
+function createModelConfig(values: MemberFormState): ModelConfig {
+  const organizationId = values.organizationId.trim();
+  const projectId = values.projectId.trim();
+
+  return {
+    apiKeyRef: values.apiKeyRef.trim() || defaultModelConfig.apiKeyRef,
+    authType: values.authType,
+    baseUrl: values.baseUrl.trim() || defaultModelConfig.baseUrl,
+    capabilities: {
+      functionCalling: values.functionCalling,
+      imageInput: values.imageInput,
+      jsonMode: values.jsonMode,
+      streaming: values.streaming,
+    },
+    endpointHint: values.endpointHint.trim() || defaultModelConfig.endpointHint,
+    environment: values.environment,
+    maxTokens: parsePositiveInteger(values.maxTokens, defaultModelConfig.maxTokens),
+    model: values.modelName.trim() || defaultModelConfig.model,
+    organizationId: organizationId || undefined,
+    projectId: projectId || undefined,
+    provider: values.modelProvider,
+    temperature: parseBoundedNumber(values.temperature, defaultModelConfig.temperature, 0, 2),
+    timeoutSeconds: parsePositiveInteger(values.timeoutSeconds, defaultModelConfig.timeoutSeconds),
+  };
+}
+
+function normalizeModelConfig(config?: Partial<ModelConfig>): ModelConfig {
+  return {
+    ...defaultModelConfig,
+    ...config,
+    capabilities: {
+      ...defaultModelConfig.capabilities,
+      ...config?.capabilities,
+    },
+  };
+}
+
+function parsePositiveInteger(value: string, fallback: number) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseBoundedNumber(value: string, fallback: number, min: number, max: number) {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
+
 function approvalCardClass(status: ApprovalStatus) {
   if (status === "pending") return "border-amber-200 bg-amber-50";
   if (status === "denied") return "border-rose-200 bg-rose-50";
@@ -1797,10 +2056,10 @@ function normalizeWorkspaceState(state: Partial<PersistedWorkspaceState>): Persi
 
 function normalizeMembers(items: Member[]) {
   return items.map((member) =>
-    member.kind === "ai" && !member.modelConfig
+    member.kind === "ai"
       ? {
           ...member,
-          modelConfig: defaultModelConfig,
+          modelConfig: normalizeModelConfig(member.modelConfig),
         }
       : member,
   );
