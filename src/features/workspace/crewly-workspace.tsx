@@ -67,6 +67,8 @@ type TaskFormMode = "create" | "edit";
 
 type MemberFormMode = "create" | "edit";
 
+type WorkspaceModule = "workspace" | "ai-teammates";
+
 type TaskFormState = {
   assigneeId: string;
   due: string;
@@ -214,6 +216,7 @@ const eventTone: Record<RuntimeEventType, string> = {
 };
 
 export function CrewlyWorkspace() {
+  const [activeModule, setActiveModule] = useState<WorkspaceModule>("workspace");
   const [activeChannelId, setActiveChannelId] = useState(channelSeed[0].id);
   const [selectedTaskId, setSelectedTaskId] = useState(tasks[0].id);
   const [selectedMemberId, setSelectedMemberId] = useState("builder");
@@ -276,6 +279,7 @@ export function CrewlyWorkspace() {
   }
 
   function openCreateMemberForm() {
+    setActiveModule("ai-teammates");
     setMemberFormMode("create");
     setMemberFormMemberId(null);
     setMemberFormValues(emptyMemberForm);
@@ -285,6 +289,7 @@ export function CrewlyWorkspace() {
   function openEditMemberForm(member: Member) {
     if (member.kind !== "ai") return;
 
+    setActiveModule("ai-teammates");
     setMemberFormMode("edit");
     setMemberFormMemberId(member.id);
     setMemberFormValues(memberToFormState(member));
@@ -650,6 +655,7 @@ export function CrewlyWorkspace() {
     setSelectedTaskId(tasks[0].id);
     setSelectedMemberId("builder");
     setActiveChannelId(channelSeed[0].id);
+    setActiveModule("workspace");
   }
 
   return (
@@ -718,7 +724,18 @@ export function CrewlyWorkspace() {
             </button>
           </SidebarSection>
           <SidebarSection title="快捷入口">
-            <SidebarShortcut icon={<LayoutDashboard className="size-4" />} label="任务看板" />
+            <SidebarShortcut
+              active={activeModule === "workspace"}
+              icon={<LayoutDashboard className="size-4" />}
+              label="任务看板"
+              onClick={() => setActiveModule("workspace")}
+            />
+            <SidebarShortcut
+              active={activeModule === "ai-teammates"}
+              icon={<Bot className="size-4" />}
+              label="AI 队友管理"
+              onClick={() => setActiveModule("ai-teammates")}
+            />
             <SidebarShortcut icon={<Activity className="size-4" />} label="运行轨迹" />
             <SidebarShortcut icon={<Inbox className="size-4" />} label="审批队列" />
           </SidebarSection>
@@ -741,33 +758,46 @@ export function CrewlyWorkspace() {
         </aside>
 
         <section className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#fbfaf7]">
+          <ModuleNav activeModule={activeModule} onChange={setActiveModule} />
           <TopBar
             aiMemberCount={activeAiMembers.length}
             channel={activeChannel}
             onlineMemberCount={workspaceMembers.filter((member) => member.presence === "online").length}
             pendingCount={pendingApprovals.length}
           />
-          <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden p-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-            <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-              <ChannelTimeline
-                approvals={approvals}
-                members={workspaceMembers}
-                messages={channelMessages}
-                tasks={workspaceTasks}
-                onConvertMessageToTask={convertMessageToTask}
-                onDecision={decideApproval}
+          {activeModule === "workspace" ? (
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden p-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+              <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+                <ChannelTimeline
+                  approvals={approvals}
+                  members={workspaceMembers}
+                  messages={channelMessages}
+                  tasks={workspaceTasks}
+                  onConvertMessageToTask={convertMessageToTask}
+                  onDecision={decideApproval}
+                  onSelectTask={selectTask}
+                />
+                <Composer onSend={sendMessage} />
+              </div>
+              <TaskBoard
+                groups={taskGroups}
+                members={assignableMembers}
+                selectedTaskId={selectedTask.id}
+                taskCount={workspaceTasks.length}
                 onSelectTask={selectTask}
               />
-              <Composer onSend={sendMessage} />
             </div>
-            <TaskBoard
-              groups={taskGroups}
-              members={workspaceMembers}
-              selectedTaskId={selectedTask.id}
-              taskCount={workspaceTasks.length}
-              onSelectTask={selectTask}
+          ) : (
+            <AITeammateManager
+              activeMembers={activeAiMembers}
+              archivedCount={workspaceMembers.filter((member) => member.kind === "ai" && member.archived).length}
+              selectedMemberId={selectedMember.id}
+              onArchiveMember={archiveMember}
+              onCreateMember={openCreateMemberForm}
+              onEditMember={openEditMemberForm}
+              onSelectMember={setSelectedMemberId}
             />
-          </div>
+          )}
         </section>
 
         <aside className="min-h-0 overflow-y-auto border-t border-stone-200 bg-[#f8f6f0] p-4 xl:border-l xl:border-t-0">
@@ -863,14 +893,77 @@ function SidebarSection({
 }
 
 function SidebarShortcut({
+  active = false,
   icon,
   label,
+  onClick,
 }: Readonly<{
+  active?: boolean;
   icon: React.ReactNode;
   label: string;
+  onClick?: () => void;
 }>) {
   return (
-    <button className="flex h-10 w-full items-center gap-2 rounded-md px-3 text-sm text-slate-700 hover:bg-white">
+    <button
+      className={`flex h-10 w-full items-center gap-2 rounded-md px-3 text-sm ${
+        active ? "bg-white font-medium text-slate-950 shadow-sm" : "text-slate-700 hover:bg-white"
+      }`}
+      type="button"
+      onClick={onClick}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function ModuleNav({
+  activeModule,
+  onChange,
+}: Readonly<{
+  activeModule: WorkspaceModule;
+  onChange: (module: WorkspaceModule) => void;
+}>) {
+  return (
+    <nav className="flex shrink-0 items-center gap-1 border-b border-stone-200 bg-[#15110d] px-5 pt-3 text-sm text-stone-400">
+      <ModuleNavButton
+        active={activeModule === "workspace"}
+        icon={<MessageSquareText className="size-4" />}
+        label="工作台"
+        onClick={() => onChange("workspace")}
+      />
+      <ModuleNavButton
+        active={activeModule === "ai-teammates"}
+        icon={<Bot className="size-4" />}
+        label="AI 队友"
+        onClick={() => onChange("ai-teammates")}
+      />
+      <span className="ml-2 inline-flex items-center gap-1 rounded-md border border-amber-700/50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
+        AI
+      </span>
+    </nav>
+  );
+}
+
+function ModuleNavButton({
+  active,
+  icon,
+  label,
+  onClick,
+}: Readonly<{
+  active: boolean;
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}>) {
+  return (
+    <button
+      className={`inline-flex h-10 items-center gap-1.5 border-b-2 px-2 transition ${
+        active ? "border-orange-500 text-white" : "border-transparent hover:text-stone-200"
+      }`}
+      type="button"
+      onClick={onClick}
+    >
       {icon}
       {label}
     </button>
@@ -917,6 +1010,151 @@ function Badge({
   return (
     <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-stone-200 bg-stone-50 px-2.5 text-xs font-medium text-slate-700">
       {icon}
+      {label}
+    </span>
+  );
+}
+
+function AITeammateManager({
+  activeMembers,
+  archivedCount,
+  onArchiveMember,
+  onCreateMember,
+  onEditMember,
+  onSelectMember,
+  selectedMemberId,
+}: Readonly<{
+  activeMembers: Member[];
+  archivedCount: number;
+  onArchiveMember: (memberId: string) => void;
+  onCreateMember: () => void;
+  onEditMember: (member: Member) => void;
+  onSelectMember: (memberId: string) => void;
+  selectedMemberId: string;
+}>) {
+  const productionCount = activeMembers.filter(
+    (member) => member.modelConfig?.environment === "生产",
+  ).length;
+  const toolCallingCount = activeMembers.filter(
+    (member) => member.modelConfig?.capabilities.functionCalling,
+  ).length;
+
+  return (
+    <section className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <Bot className="size-4" />
+            独立管理模块
+          </div>
+          <h2 className="mt-1 text-2xl font-semibold">AI 队友管理</h2>
+          <p className="mt-1 text-sm text-slate-500">集中维护队友身份、职责、模型配置和启用状态。</p>
+        </div>
+        <button
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-slate-950 px-4 text-sm font-medium text-white hover:bg-slate-800"
+          type="button"
+          onClick={onCreateMember}
+        >
+          <Plus className="size-4" />
+          新建 AI 队友
+        </button>
+      </div>
+
+      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <TeammateStat label="可用队友" value={String(activeMembers.length)} />
+        <TeammateStat label="生产环境模型" value={String(productionCount)} />
+        <TeammateStat label="支持工具调用" value={String(toolCallingCount)} />
+        <TeammateStat label="已停用" value={String(archivedCount)} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+        {activeMembers.map((member) => {
+          const config = member.modelConfig ?? defaultModelConfig;
+
+          return (
+            <article
+              key={member.id}
+              className={`rounded-lg border bg-white p-4 shadow-sm ${
+                member.id === selectedMemberId ? "border-slate-950" : "border-stone-200"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <button
+                  className="flex min-w-0 items-center gap-3 text-left"
+                  type="button"
+                  onClick={() => onSelectMember(member.id)}
+                >
+                  <Avatar member={member} />
+                  <span className="min-w-0">
+                    <MemberName member={member} />
+                    <span className="mt-1 block truncate text-sm text-slate-500">{member.role}</span>
+                  </span>
+                </button>
+                <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                  {member.presence === "online" ? "在线" : member.presence === "busy" ? "忙碌" : "离开"}
+                </span>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                <InfoTile label="提供商" value={config.provider} />
+                <InfoTile label="模型" value={config.model} />
+                <InfoTile label="环境" value={config.environment} />
+                <InfoTile label="密钥引用" value={config.apiKeyRef || "未配置"} />
+              </div>
+              <div className="mt-3 rounded-md bg-stone-50 p-2 text-xs">
+                <p className="text-slate-500">Base URL</p>
+                <p className="mt-1 truncate font-medium">{config.baseUrl}</p>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {config.capabilities.streaming ? <CapabilityPill label="流式输出" /> : null}
+                {config.capabilities.functionCalling ? <CapabilityPill label="工具调用" /> : null}
+                {config.capabilities.jsonMode ? <CapabilityPill label="JSON 模式" /> : null}
+                {config.capabilities.imageInput ? <CapabilityPill label="图片输入" /> : null}
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-stone-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-stone-50"
+                  type="button"
+                  onClick={() => onEditMember(member)}
+                >
+                  <Edit3 className="size-4" />
+                  编辑配置
+                </button>
+                <button
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-stone-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-stone-50"
+                  type="button"
+                  onClick={() => onArchiveMember(member.id)}
+                >
+                  <Archive className="size-4" />
+                  停用
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function TeammateStat({
+  label,
+  value,
+}: Readonly<{
+  label: string;
+  value: string;
+}>) {
+  return (
+    <div className="rounded-lg border border-stone-200 bg-white p-3 shadow-sm">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="mt-1 text-2xl font-semibold">{value}</p>
+    </div>
+  );
+}
+
+function CapabilityPill({ label }: Readonly<{ label: string }>) {
+  return (
+    <span className="rounded-md bg-stone-100 px-2 py-1 text-xs font-medium text-slate-600">
       {label}
     </span>
   );
