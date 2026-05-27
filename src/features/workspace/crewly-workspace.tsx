@@ -43,12 +43,14 @@ import type {
   Channel,
   Member,
   Message,
+  MemoryScope,
   ModelAuthType,
   ModelConfig,
   ModelEnvironment,
   ModelProvider,
   RuntimeEventType,
   SessionStatus,
+  SkillInvocationMode,
   Task,
   TaskPriority,
   TaskStatus,
@@ -92,14 +94,21 @@ type MemberFormState = {
   environment: ModelEnvironment;
   functionCalling: boolean;
   imageInput: boolean;
+  installedSkillsText: string;
   jsonMode: boolean;
   maxTokens: string;
+  memoryEnabled: boolean;
+  memoryNotes: string;
+  memoryRetentionDays: string;
+  memoryScope: MemoryScope;
   modelName: string;
   modelProvider: ModelProvider;
   name: string;
   organizationId: string;
   projectId: string;
   role: string;
+  skillApprovalRequired: boolean;
+  skillInvocationMode: SkillInvocationMode;
   streaming: boolean;
   temperature: string;
   timeoutSeconds: string;
@@ -141,14 +150,21 @@ const emptyMemberForm: MemberFormState = {
   environment: "开发",
   functionCalling: true,
   imageInput: true,
+  installedSkillsText: "web-search | Web 检索 | 查找公开资料并返回来源\nrepo-inspector | 仓库分析 | 阅读代码结构和变更影响\ndoc-writer | 文档撰写 | 生成规格、验收和交付文档",
   jsonMode: true,
   maxTokens: "4096",
+  memoryEnabled: true,
+  memoryNotes: "保留用户偏好、项目约定、任务上下文和验收口径。",
+  memoryRetentionDays: "30",
+  memoryScope: "当前工作区",
   modelName: "gpt-5",
   modelProvider: "OpenAI",
   name: "",
   organizationId: "",
   projectId: "",
   role: "",
+  skillApprovalRequired: true,
+  skillInvocationMode: "调用前确认",
   streaming: true,
   temperature: "0.7",
   timeoutSeconds: "60",
@@ -173,6 +189,38 @@ const defaultModelConfig: ModelConfig = {
   timeoutSeconds: 60,
 };
 
+const defaultMemoryConfig = {
+  enabled: true,
+  notes: "保留用户偏好、项目约定、任务上下文和验收口径。",
+  retentionDays: 30,
+  scope: "当前工作区" as MemoryScope,
+};
+
+const defaultSkillConfig = {
+  installedSkills: [
+    {
+      id: "web-search",
+      name: "Web 检索",
+      description: "查找公开资料并返回来源",
+      enabled: true,
+    },
+    {
+      id: "repo-inspector",
+      name: "仓库分析",
+      description: "阅读代码结构和变更影响",
+      enabled: true,
+    },
+    {
+      id: "doc-writer",
+      name: "文档撰写",
+      description: "生成规格、验收和交付文档",
+      enabled: true,
+    },
+  ],
+  invocationMode: "调用前确认" as SkillInvocationMode,
+  requireApprovalForExternalActions: true,
+};
+
 const modelProviders: ModelProvider[] = [
   "OpenAI",
   "Anthropic",
@@ -186,6 +234,10 @@ const modelProviders: ModelProvider[] = [
 const authTypes: ModelAuthType[] = ["Bearer Token", "API Key Header", "无认证", "自定义"];
 
 const modelEnvironments: ModelEnvironment[] = ["开发", "测试", "生产"];
+
+const memoryScopes: MemoryScope[] = ["仅当前频道", "当前工作区", "跨工作区"];
+
+const skillInvocationModes: SkillInvocationMode[] = ["自动调用", "调用前确认", "手动调用"];
 
 const statusLabel: Record<TaskStatus, string> = {
   todo: "待开始",
@@ -339,6 +391,8 @@ export function CrewlyWorkspace() {
                 role: values.role.trim() || "AI 协作队友",
                 avatar: normalizeAvatar(values.avatar, name),
                 modelConfig: createModelConfig(values),
+                memoryConfig: createMemoryConfig(values),
+                skillConfig: createSkillConfig(values),
               }
             : member,
         ),
@@ -356,6 +410,8 @@ export function CrewlyWorkspace() {
       avatar: normalizeAvatar(values.avatar, name),
       presence: "online",
       modelConfig: createModelConfig(values),
+      memoryConfig: createMemoryConfig(values),
+      skillConfig: createSkillConfig(values),
     };
 
     setWorkspaceState((current) => ({
@@ -1032,12 +1088,11 @@ function AITeammateManager({
   onSelectMember: (memberId: string) => void;
   selectedMemberId: string;
 }>) {
-  const productionCount = activeMembers.filter(
-    (member) => member.modelConfig?.environment === "生产",
-  ).length;
-  const toolCallingCount = activeMembers.filter(
-    (member) => member.modelConfig?.capabilities.functionCalling,
-  ).length;
+  const memoryEnabledCount = activeMembers.filter((member) => member.memoryConfig?.enabled).length;
+  const installedSkillCount = activeMembers.reduce(
+    (total, member) => total + (member.skillConfig?.installedSkills.filter((skill) => skill.enabled).length ?? 0),
+    0,
+  );
 
   return (
     <section className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -1062,14 +1117,17 @@ function AITeammateManager({
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <TeammateStat label="可用队友" value={String(activeMembers.length)} />
-        <TeammateStat label="生产环境模型" value={String(productionCount)} />
-        <TeammateStat label="支持工具调用" value={String(toolCallingCount)} />
+        <TeammateStat label="启用记忆" value={String(memoryEnabledCount)} />
+        <TeammateStat label="已装技能" value={String(installedSkillCount)} />
         <TeammateStat label="已停用" value={String(archivedCount)} />
       </div>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         {activeMembers.map((member) => {
           const config = member.modelConfig ?? defaultModelConfig;
+          const memory = member.memoryConfig ?? defaultMemoryConfig;
+          const skills = member.skillConfig ?? defaultSkillConfig;
+          const enabledSkills = skills.installedSkills.filter((skill) => skill.enabled);
 
           return (
             <article
@@ -1100,6 +1158,8 @@ function AITeammateManager({
                 <InfoTile label="模型" value={config.model} />
                 <InfoTile label="环境" value={config.environment} />
                 <InfoTile label="密钥引用" value={config.apiKeyRef || "未配置"} />
+                <InfoTile label="记忆" value={memory.enabled ? `${memory.scope} / ${memory.retentionDays}天` : "关闭"} />
+                <InfoTile label="技能策略" value={skills.invocationMode} />
               </div>
               <div className="mt-3 rounded-md bg-stone-50 p-2 text-xs">
                 <p className="text-slate-500">Base URL</p>
@@ -1110,6 +1170,16 @@ function AITeammateManager({
                 {config.capabilities.functionCalling ? <CapabilityPill label="工具调用" /> : null}
                 {config.capabilities.jsonMode ? <CapabilityPill label="JSON 模式" /> : null}
                 {config.capabilities.imageInput ? <CapabilityPill label="图片输入" /> : null}
+              </div>
+              <div className="mt-3 rounded-md bg-stone-50 p-2 text-xs">
+                <p className="text-slate-500">已安装技能</p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {enabledSkills.length > 0 ? (
+                    enabledSkills.map((skill) => <CapabilityPill key={skill.id} label={skill.name} />)
+                  ) : (
+                    <span className="text-slate-500">暂无启用技能</span>
+                  )}
+                </div>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <button
@@ -1484,6 +1554,12 @@ function ContextPanel({
           </div>
         </div>
         {member.kind === "ai" ? <ModelConfigSummary config={member.modelConfig ?? defaultModelConfig} /> : null}
+        {member.kind === "ai" ? (
+          <TeammateRuntimeSummary
+            memory={member.memoryConfig ?? defaultMemoryConfig}
+            skills={member.skillConfig ?? defaultSkillConfig}
+          />
+        ) : null}
         {member.kind === "ai" ? (
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button
@@ -1967,6 +2043,89 @@ function MemberFormDialog({
               />
             </label>
           </div>
+          <div className="rounded-md border border-stone-200 bg-stone-50 p-3">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">独立记忆</p>
+                <p className="mt-1 text-xs text-slate-500">每个 AI 队友单独保存记忆范围和保留策略。</p>
+              </div>
+              <CircleDot className="size-4 shrink-0 text-slate-500" />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <ModelCapabilityCheckbox
+                checked={values.memoryEnabled}
+                label="启用记忆"
+                onChange={(checked) => update("memoryEnabled", checked)}
+              />
+              <TaskSelect
+                label="记忆范围"
+                value={values.memoryScope}
+                onChange={(value) => update("memoryScope", value as MemoryScope)}
+              >
+                {memoryScopes.map((scope) => (
+                  <option key={scope} value={scope}>
+                    {scope}
+                  </option>
+                ))}
+              </TaskSelect>
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">保留天数</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm outline-none focus:border-slate-950"
+                  min="1"
+                  step="1"
+                  type="number"
+                  value={values.memoryRetentionDays}
+                  onChange={(event) => update("memoryRetentionDays", event.target.value)}
+                />
+              </label>
+            </div>
+            <label className="mt-3 block">
+              <span className="text-sm font-medium text-slate-700">记忆说明</span>
+              <textarea
+                className="mt-1 min-h-20 w-full resize-none rounded-md border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-950"
+                placeholder="说明该 AI 队友应该记住什么"
+                value={values.memoryNotes}
+                onChange={(event) => update("memoryNotes", event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="rounded-md border border-stone-200 bg-stone-50 p-3">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">独立技能</p>
+                <p className="mt-1 text-xs text-slate-500">每个 AI 队友维护自己的技能安装清单和调用策略。</p>
+              </div>
+              <Sparkles className="size-4 shrink-0 text-slate-500" />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <TaskSelect
+                label="调用策略"
+                value={values.skillInvocationMode}
+                onChange={(value) => update("skillInvocationMode", value as SkillInvocationMode)}
+              >
+                {skillInvocationModes.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode}
+                  </option>
+                ))}
+              </TaskSelect>
+              <ModelCapabilityCheckbox
+                checked={values.skillApprovalRequired}
+                label="外部动作需审批"
+                onChange={(checked) => update("skillApprovalRequired", checked)}
+              />
+            </div>
+            <label className="mt-3 block">
+              <span className="text-sm font-medium text-slate-700">已安装技能</span>
+              <textarea
+                className="mt-1 min-h-28 w-full resize-none rounded-md border border-stone-300 bg-white px-3 py-2 font-mono text-xs outline-none focus:border-slate-950"
+                placeholder="skill-id | 技能名 | 技能描述，每行一个"
+                value={values.installedSkillsText}
+                onChange={(event) => update("installedSkillsText", event.target.value)}
+              />
+            </label>
+          </div>
         </div>
         <DialogActions submitLabel={mode === "create" ? "创建 AI 队友" : "保存配置"} onClose={onClose} />
       </form>
@@ -2209,6 +2368,33 @@ function ModelConfigSummary({ config }: Readonly<{ config: ModelConfig }>) {
   );
 }
 
+function TeammateRuntimeSummary({
+  memory,
+  skills,
+}: Readonly<{
+  memory: typeof defaultMemoryConfig;
+  skills: typeof defaultSkillConfig;
+}>) {
+  const enabledSkills = skills.installedSkills.filter((skill) => skill.enabled);
+
+  return (
+    <div className="mt-3 rounded-md border border-stone-200 bg-stone-50 p-3">
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <InfoTile label="独立记忆" value={memory.enabled ? memory.scope : "关闭"} />
+        <InfoTile label="保留" value={memory.enabled ? `${memory.retentionDays}天` : "不保留"} />
+        <InfoTile label="技能数" value={String(enabledSkills.length)} />
+        <InfoTile label="调用策略" value={skills.invocationMode} />
+      </div>
+      {memory.notes ? <p className="mt-3 text-xs leading-5 text-slate-500">{memory.notes}</p> : null}
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {enabledSkills.map((skill) => (
+          <CapabilityPill key={skill.id} label={skill.name} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SessionStatusBadge({ session }: Readonly<{ session: AgentSession }>) {
   const label =
     session.status === "running"
@@ -2334,14 +2520,22 @@ function memberToFormState(member: Member): MemberFormState {
     environment: config.environment,
     functionCalling: config.capabilities.functionCalling,
     imageInput: config.capabilities.imageInput,
+    installedSkillsText: skillsToText(member.skillConfig?.installedSkills ?? defaultSkillConfig.installedSkills),
     jsonMode: config.capabilities.jsonMode,
     maxTokens: String(config.maxTokens),
+    memoryEnabled: member.memoryConfig?.enabled ?? defaultMemoryConfig.enabled,
+    memoryNotes: member.memoryConfig?.notes ?? defaultMemoryConfig.notes,
+    memoryRetentionDays: String(member.memoryConfig?.retentionDays ?? defaultMemoryConfig.retentionDays),
+    memoryScope: member.memoryConfig?.scope ?? defaultMemoryConfig.scope,
     modelName: config.model,
     modelProvider: config.provider,
     name: member.name,
     organizationId: config.organizationId ?? "",
     projectId: config.projectId ?? "",
     role: member.role,
+    skillApprovalRequired:
+      member.skillConfig?.requireApprovalForExternalActions ?? defaultSkillConfig.requireApprovalForExternalActions,
+    skillInvocationMode: member.skillConfig?.invocationMode ?? defaultSkillConfig.invocationMode,
     streaming: config.capabilities.streaming,
     temperature: String(config.temperature),
     timeoutSeconds: String(config.timeoutSeconds),
@@ -2374,6 +2568,23 @@ function createModelConfig(values: MemberFormState): ModelConfig {
   };
 }
 
+function createMemoryConfig(values: MemberFormState) {
+  return {
+    enabled: values.memoryEnabled,
+    notes: values.memoryNotes.trim() || defaultMemoryConfig.notes,
+    retentionDays: parsePositiveInteger(values.memoryRetentionDays, defaultMemoryConfig.retentionDays),
+    scope: values.memoryScope,
+  };
+}
+
+function createSkillConfig(values: MemberFormState) {
+  return {
+    installedSkills: parseInstalledSkills(values.installedSkillsText),
+    invocationMode: values.skillInvocationMode,
+    requireApprovalForExternalActions: values.skillApprovalRequired,
+  };
+}
+
 function normalizeModelConfig(config?: Partial<ModelConfig>): ModelConfig {
   return {
     ...defaultModelConfig,
@@ -2383,6 +2594,56 @@ function normalizeModelConfig(config?: Partial<ModelConfig>): ModelConfig {
       ...config?.capabilities,
     },
   };
+}
+
+function normalizeMemoryConfig(config?: Partial<typeof defaultMemoryConfig>) {
+  return {
+    ...defaultMemoryConfig,
+    ...config,
+  };
+}
+
+function normalizeSkillConfig(config?: Partial<typeof defaultSkillConfig>) {
+  return {
+    ...defaultSkillConfig,
+    ...config,
+    installedSkills:
+      config?.installedSkills && config.installedSkills.length > 0
+        ? config.installedSkills
+        : defaultSkillConfig.installedSkills,
+  };
+}
+
+function parseInstalledSkills(value: string) {
+  const skills = value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [idPart, namePart, descriptionPart] = line.split("|").map((part) => part.trim());
+      const name = namePart || idPart;
+
+      return {
+        id: slugifySkillId(idPart || name),
+        name,
+        description: descriptionPart || "自定义技能",
+        enabled: true,
+      };
+    });
+
+  return skills.length > 0 ? skills : defaultSkillConfig.installedSkills;
+}
+
+function skillsToText(skills: typeof defaultSkillConfig.installedSkills) {
+  return skills.map((skill) => `${skill.id} | ${skill.name} | ${skill.description}`).join("\n");
+}
+
+function slugifySkillId(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
+    .replace(/^-+|-+$/g, "") || `skill-${Date.now()}`;
 }
 
 function parsePositiveInteger(value: string, fallback: number) {
@@ -2433,7 +2694,9 @@ function normalizeMembers(items: Member[]) {
     member.kind === "ai"
       ? {
           ...member,
+          memoryConfig: normalizeMemoryConfig(member.memoryConfig),
           modelConfig: normalizeModelConfig(member.modelConfig),
+          skillConfig: normalizeSkillConfig(member.skillConfig),
         }
       : member,
   );
