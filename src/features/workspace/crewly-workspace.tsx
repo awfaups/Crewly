@@ -388,7 +388,7 @@ export function CrewlyWorkspace() {
             ? {
                 ...member,
                 name,
-                role: values.role.trim() || "AI 协作队友",
+                role: values.role.trim() || "AI 协作成员",
                 avatar: normalizeAvatar(values.avatar, name),
                 modelConfig: createModelConfig(values),
                 memoryConfig: createMemoryConfig(values),
@@ -406,7 +406,7 @@ export function CrewlyWorkspace() {
       id: memberId,
       name,
       kind: "ai",
-      role: values.role.trim() || "AI 协作队友",
+      role: values.role.trim() || "AI 协作成员",
       avatar: normalizeAvatar(values.avatar, name),
       presence: "online",
       modelConfig: createModelConfig(values),
@@ -456,7 +456,7 @@ export function CrewlyWorkspace() {
       const eventDetail =
         status === "approved"
           ? "相关任务已推进到待验收，等待人类成员做最终检查。"
-          : "相关任务已回到进行中，需要 AI 队友根据反馈继续修正。";
+          : "相关任务已回到进行中，需要 AI 成员根据反馈继续修正。";
 
       return {
         ...current,
@@ -752,7 +752,7 @@ export function CrewlyWorkspace() {
               新建频道
             </button>
           </SidebarSection>
-          <SidebarSection title="AI 队友">
+          <SidebarSection title="AI 成员">
             {activeAiMembers
               .map((member) => (
                 <button
@@ -776,7 +776,7 @@ export function CrewlyWorkspace() {
               onClick={openCreateMemberForm}
             >
               <Plus className="size-4" />
-              新建 AI 队友
+              新建 AI 成员
             </button>
           </SidebarSection>
           <SidebarSection title="快捷入口">
@@ -789,7 +789,7 @@ export function CrewlyWorkspace() {
             <SidebarShortcut
               active={activeModule === "ai-teammates"}
               icon={<Bot className="size-4" />}
-              label="AI 队友管理"
+              label="AI 成员管理"
               onClick={() => setActiveModule("ai-teammates")}
             />
             <SidebarShortcut icon={<Activity className="size-4" />} label="运行轨迹" />
@@ -991,7 +991,7 @@ function ModuleNav({
       <ModuleNavButton
         active={activeModule === "ai-teammates"}
         icon={<Bot className="size-4" />}
-        label="AI 队友"
+        label="AI 成员"
         onClick={() => onChange("ai-teammates")}
       />
       <span className="ml-2 inline-flex items-center gap-1 rounded-md border border-amber-700/50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
@@ -1049,7 +1049,7 @@ function TopBar({
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Badge icon={<Users className="size-3.5" />} label={`${onlineMemberCount} 位成员在线`} />
-        <Badge icon={<Bot className="size-3.5" />} label={`${aiMemberCount} 个 AI 队友`} />
+        <Badge icon={<Bot className="size-3.5" />} label={`${aiMemberCount} 个 AI 成员`} />
         <Badge icon={<ShieldCheck className="size-3.5" />} label={`${pendingCount} 个待审批`} />
       </div>
     </header>
@@ -1102,8 +1102,8 @@ function AITeammateManager({
             <Bot className="size-4" />
             独立管理模块
           </div>
-          <h2 className="mt-1 text-2xl font-semibold">AI 队友管理</h2>
-          <p className="mt-1 text-sm text-slate-500">集中维护队友身份、职责、模型配置和启用状态。</p>
+          <h2 className="mt-1 text-2xl font-semibold">AI 成员管理</h2>
+          <p className="mt-1 text-sm text-slate-500">集中维护成员身份、职责、模型配置和启用状态。</p>
         </div>
         <button
           className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-slate-950 px-4 text-sm font-medium text-white hover:bg-slate-800"
@@ -1111,12 +1111,12 @@ function AITeammateManager({
           onClick={onCreateMember}
         >
           <Plus className="size-4" />
-          新建 AI 队友
+          新建 AI 成员
         </button>
       </div>
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <TeammateStat label="可用队友" value={String(activeMembers.length)} />
+        <TeammateStat label="可用成员" value={String(activeMembers.length)} />
         <TeammateStat label="启用记忆" value={String(memoryEnabledCount)} />
         <TeammateStat label="已装技能" value={String(installedSkillCount)} />
         <TeammateStat label="已停用" value={String(archivedCount)} />
@@ -1371,7 +1371,7 @@ function Composer({ onSend }: Readonly<{ onSend: (body: string, attachments: Att
         <MessageSquareText className="size-4 shrink-0" />
         <input
           className="min-w-0 flex-1 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
-          placeholder="写下需求、同步进展，或 @AI 队友分配任务"
+          placeholder="写下需求、同步进展，或 @AI 成员分配任务"
           value={value}
           onChange={(event) => setValue(event.target.value)}
         />
@@ -1543,7 +1543,7 @@ function ContextPanel({
 
       <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-semibold">AI 队友</h2>
+          <h2 className="font-semibold">AI 成员</h2>
           <Sparkles className="size-4 text-amber-600" />
         </div>
         <div className="flex items-center gap-3">
@@ -1858,7 +1858,7 @@ function MemberFormDialog({
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4">
       <form className="flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col rounded-lg bg-white p-5 shadow-xl" onSubmit={handleSubmit}>
-        <DialogHeader eyebrow="AI 队友" title={mode === "create" ? "新建 AI 队友" : "编辑 AI 队友"} onClose={onClose} />
+        <DialogHeader eyebrow="AI 成员" title={mode === "create" ? "新建 AI 成员" : "编辑 AI 成员"} onClose={onClose} />
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
           <label className="block">
             <span className="text-sm font-medium text-slate-700">名称</span>
@@ -2047,7 +2047,7 @@ function MemberFormDialog({
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-slate-800">独立记忆</p>
-                <p className="mt-1 text-xs text-slate-500">每个 AI 队友单独保存记忆范围和保留策略。</p>
+                <p className="mt-1 text-xs text-slate-500">每个 AI 成员单独保存记忆范围和保留策略。</p>
               </div>
               <CircleDot className="size-4 shrink-0 text-slate-500" />
             </div>
@@ -2084,7 +2084,7 @@ function MemberFormDialog({
               <span className="text-sm font-medium text-slate-700">记忆说明</span>
               <textarea
                 className="mt-1 min-h-20 w-full resize-none rounded-md border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-950"
-                placeholder="说明该 AI 队友应该记住什么"
+                placeholder="说明该 AI 成员应该记住什么"
                 value={values.memoryNotes}
                 onChange={(event) => update("memoryNotes", event.target.value)}
               />
@@ -2094,7 +2094,7 @@ function MemberFormDialog({
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-slate-800">独立技能</p>
-                <p className="mt-1 text-xs text-slate-500">每个 AI 队友维护自己的技能安装清单和调用策略。</p>
+                <p className="mt-1 text-xs text-slate-500">每个 AI 成员维护自己的技能安装清单和调用策略。</p>
               </div>
               <Sparkles className="size-4 shrink-0 text-slate-500" />
             </div>
@@ -2127,7 +2127,7 @@ function MemberFormDialog({
             </label>
           </div>
         </div>
-        <DialogActions submitLabel={mode === "create" ? "创建 AI 队友" : "保存配置"} onClose={onClose} />
+        <DialogActions submitLabel={mode === "create" ? "创建 AI 成员" : "保存配置"} onClose={onClose} />
       </form>
     </div>
   );

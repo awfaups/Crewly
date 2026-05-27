@@ -4,7 +4,7 @@
 
 - 产品名：Crewly
 - 产品类型：AI-native team workspace
-- 核心对象：AI teammate、channel、task、session、approval
+- 核心对象：AI member、channel、task、session、approval
 - 当前仓库：`https://github.com/awfaups/Crewly`
 - 初始实现方向：Web 版
 - 初始交付重点：可运行 MVP 骨架和核心工作流演示
@@ -16,7 +16,7 @@
 - AI 可以推进工作，但人类保留最终审阅和发布权。
 - 执行轨迹必须可读，包括思考状态、工具调用、结果和审批。
 - 第一版保持范围克制，先证明工作流，再扩展集成。
-- 产品原型和交互可参照 Helio 的公开工作方式：频道、任务、AI teammate、session、approval 在同一工作台内联动。
+- 产品原型和交互可参照 Helio 的公开工作方式：频道、任务、AI member、session、approval 在同一工作台内联动。
 - 参照 Helio 时只借鉴工作流结构和交互范式，不复制品牌、视觉资产、文案或代码。
 
 ## 建议技术方向

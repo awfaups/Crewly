@@ -11,7 +11,7 @@ Crewly Web 版中文工作台 MVP 已完成第一轮实现。
 - 初始化 Next.js + TypeScript + Tailwind 项目。
 - 增加 Crewly 领域类型和 mock data。
 - 实现中文三栏工作台：左侧导航、中间频道流、右侧上下文。
-- 实现频道消息、任务看板、AI 队友、Agent Session timeline 和审批卡。
+- 实现频道消息、任务看板、AI 成员、Agent Session timeline 和审批卡。
 - README 已更新运行方式、项目结构、MVP 范围和后续路线。
 - 已配置 GitHub Pages 自动部署工作流。
 
@@ -56,5 +56,5 @@ Crewly Web 版中文工作台 MVP 已完成第一轮实现。
 | `src/app/globals.css` | 全文件 | 默认样式 | 设置 Crewly 工作台背景、前景和按钮焦点样式 |
 | `src/lib/types.ts` | 全文件 | 不存在 | 增加 workspace、member、channel、message、task、session、approval 类型 |
 | `src/lib/mock-data.ts` | 全文件 | 不存在 | 增加中文 mock 数据 |
-| `src/features/workspace/crewly-workspace.tsx` | 全文件 | 不存在 | 实现三栏工作台、频道切换、任务选择、AI 队友、Session timeline 和审批状态反馈 |
+| `src/features/workspace/crewly-workspace.tsx` | 全文件 | 不存在 | 实现三栏工作台、频道切换、任务选择、AI 成员、Session timeline 和审批状态反馈 |
 | `README.md` | 全文件 | 默认 Next.js README | 改为 Crewly 定位、运行方式、结构、MVP 范围和后续路线 |

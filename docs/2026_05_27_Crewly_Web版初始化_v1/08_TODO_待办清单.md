@@ -16,7 +16,7 @@
 - [x] 实现 Helio 式三栏工作台交互结构
 - [x] 实现 channel timeline
 - [x] 实现 task board
-- [x] 实现 AI teammate cards
+- [x] 实现 AI member cards
 - [x] 实现 agent session timeline
 - [x] 实现 approval card
 - [x] 编写 README

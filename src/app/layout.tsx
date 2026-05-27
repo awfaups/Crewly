@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Crewly | AI 团队工作区",
-  description: "Crewly 是面向人类成员和 AI 队友协作的中文团队工作台。",
+  description: "Crewly 是面向人类成员和 AI 成员协作的中文团队工作台。",
 };
 
 export default function RootLayout({

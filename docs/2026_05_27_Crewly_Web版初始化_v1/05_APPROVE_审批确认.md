@@ -22,7 +22,7 @@
 - 可运行 Web app
 - 首页即 workspace 工作台
 - mock 数据驱动
-- 核心模块：channels、tasks、AI teammates、session、approval
+- 核心模块：channels、tasks、AI members、session、approval
 - 产品原型和交互参照 Helio 的公开体验
 - Crewly 自有视觉、文案和示例数据
 - README 和基础文档

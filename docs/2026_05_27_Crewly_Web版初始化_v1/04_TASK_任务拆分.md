@@ -48,7 +48,7 @@
 - 顶部状态栏
 - 主内容区域
 - 右侧上下文面板
-- 频道、任务、AI teammate、session、approval 的同屏联动体验
+- 频道、任务、AI member、session、approval 的同屏联动体验
 
 验证：
 

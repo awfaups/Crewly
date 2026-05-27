@@ -10,7 +10,7 @@ Crewly Web
   -> Workspace Dashboard
   -> Channels
   -> Tasks
-  -> AI Teammates
+  -> AI Members
   -> Sessions
   -> Approvals
   -> Mock Domain Data
@@ -35,7 +35,7 @@ Web App
 Workspace
 User
 Member
-AiTeammate
+AiMember
 Channel
 Message
 Task
@@ -65,7 +65,7 @@ src/features/tasks
   Task board and task detail
 
 src/features/teammates
-  AI teammate cards and profile panels
+  AI member cards and profile panels
 
 src/features/sessions
   Agent session timeline and runtime events
@@ -98,7 +98,7 @@ Global Shell
   -> Left Sidebar
        Workspace switcher
        Channels
-       AI Teammates / DMs
+       AI Members / DMs
        Tasks shortcut
   -> Main Work Area
        Active channel timeline
@@ -114,7 +114,7 @@ Global Shell
 
 - 点击频道切换中间消息流。
 - 点击任务卡或任务列表项时，右侧展示任务上下文和相关 session。
-- 点击 AI teammate 时，显示该 AI 的状态、职责、订阅频道和当前任务。
+- 点击 AI member 时，显示该 AI 的状态、职责、订阅频道和当前任务。
 - Agent Session 以 timeline 呈现，区分 message、thinking、tool use、result、approval。
 - Pending approval 需要明显但克制地展示 approve / deny 操作。
 - 页面文案使用 Crewly 自有表达，不复用 Helio 原文。
@@ -128,7 +128,7 @@ mock workspace
 mock channels
 mock messages
 mock tasks
-mock AI teammates
+mock AI members
 mock runtime events
 mock approvals
 ```

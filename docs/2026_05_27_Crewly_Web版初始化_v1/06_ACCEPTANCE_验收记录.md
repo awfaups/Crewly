@@ -4,7 +4,7 @@
 
 - 项目可以本地安装依赖并启动。
 - 页面第一屏是 Crewly workspace，不是营销页。
-- 页面展示 AI teammates、channels、tasks、sessions、approvals。
+- 页面展示 AI members、channels、tasks、sessions、approvals。
 - 任务和 AI session 之间有明确关系。
 - 审批卡有 pending/approved/denied 状态表达。
 - 产品原型能体现 Helio 式工作台交互：左侧导航、中间工作流、右侧上下文。

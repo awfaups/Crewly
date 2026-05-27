@@ -11,7 +11,7 @@ import type {
 export const workspace: Workspace = {
   id: "crewly",
   name: "Crewly 产品工作区",
-  description: "AI 队友与人类成员共同推进产品、研发和交付。",
+  description: "AI 成员与人类成员共同推进产品、研发和交付。",
   health: "本周节奏稳定",
   activeMembers: 8,
 };
@@ -172,7 +172,7 @@ export const sessions: AgentSession[] = [
         id: "event-2",
         type: "thinking",
         title: "梳理布局",
-        detail: "将频道、任务、AI 队友和审批放入同一操作面，减少页面跳转。",
+        detail: "将频道、任务、AI 成员和审批放入同一操作面，减少页面跳转。",
         time: "09:24",
       },
       {
@@ -254,7 +254,7 @@ export const messages: Message[] = [
     channelId: "product",
     authorId: "navigator",
     time: "09:17",
-    body: "已把 Crewly 的信息架构收敛为频道、任务、AI 队友、Session 和审批五个对象。",
+    body: "已把 Crewly 的信息架构收敛为频道、任务、AI 成员、Session 和审批五个对象。",
     linkedTaskId: "task-copy",
   },
   {

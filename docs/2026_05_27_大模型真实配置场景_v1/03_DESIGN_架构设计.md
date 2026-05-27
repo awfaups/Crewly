@@ -44,7 +44,7 @@
 
 ## UI 设计
 
-- 新建 AI 队友弹窗中的大模型配置改为多字段表单。
+- 新建 AI 成员弹窗中的大模型配置改为多字段表单。
 - 能力开关使用 checkbox。
 - 数值参数使用 number input。
-- 右侧 AI 队友卡片展示 provider、model、Base URL、认证方式、密钥引用、运行环境、参数和能力。
+- 右侧 AI 成员卡片展示 provider、model、Base URL、认证方式、密钥引用、运行环境、参数和能力。
