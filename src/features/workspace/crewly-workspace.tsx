@@ -76,7 +76,7 @@ type TaskFormMode = "create" | "edit";
 
 type MemberFormMode = "create" | "edit";
 
-type WorkspaceModule = "workspace" | "ai-teammates" | "skills";
+type WorkspaceModule = "workspace" | "ai-teammates" | "skills" | "runtime" | "approvals";
 
 type TaskFormState = {
   assigneeId: string;
@@ -921,8 +921,18 @@ export function CrewlyWorkspace() {
               label="技能市场"
               onClick={() => setActiveModule("skills")}
             />
-            <SidebarShortcut icon={<Activity className="size-4" />} label="运行轨迹" />
-            <SidebarShortcut icon={<Inbox className="size-4" />} label="审批队列" />
+            <SidebarShortcut
+              active={activeModule === "runtime"}
+              icon={<Activity className="size-4" />}
+              label="运行轨迹"
+              onClick={() => setActiveModule("runtime")}
+            />
+            <SidebarShortcut
+              active={activeModule === "approvals"}
+              icon={<Inbox className="size-4" />}
+              label="审批队列"
+              onClick={() => setActiveModule("approvals")}
+            />
           </SidebarSection>
           <button
             className="mt-5 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-medium text-white shadow-sm hover:bg-slate-800"
@@ -983,7 +993,7 @@ export function CrewlyWorkspace() {
               onEditMember={openEditMemberForm}
               onSelectMember={setSelectedMemberId}
             />
-          ) : (
+          ) : activeModule === "skills" ? (
             <SkillLibraryModule
               activeMembers={activeAiMembers}
               skillCatalog={skillCatalog}
@@ -991,6 +1001,22 @@ export function CrewlyWorkspace() {
               onInstallCrewlySkill={installCrewlySkill}
               onUninstallCrewlySkill={uninstallCrewlySkill}
               onSelectMember={setSelectedMemberId}
+            />
+          ) : activeModule === "runtime" ? (
+            <RuntimeTraceModule
+              members={workspaceMembers}
+              sessions={workspaceSessions}
+              tasks={workspaceTasks}
+              selectedSessionId={selectedSession.id}
+              onSelectTask={selectTask}
+            />
+          ) : (
+            <ApprovalQueueModule
+              approvals={approvals}
+              members={workspaceMembers}
+              tasks={workspaceTasks}
+              onDecision={decideApproval}
+              onSelectTask={selectTask}
             />
           )}
         </section>
@@ -1141,6 +1167,18 @@ function ModuleNav({
         icon={<Sparkles className="size-4" />}
         label="技能市场"
         onClick={() => onChange("skills")}
+      />
+      <ModuleNavButton
+        active={activeModule === "runtime"}
+        icon={<Activity className="size-4" />}
+        label="运行轨迹"
+        onClick={() => onChange("runtime")}
+      />
+      <ModuleNavButton
+        active={activeModule === "approvals"}
+        icon={<Inbox className="size-4" />}
+        label="审批队列"
+        onClick={() => onChange("approvals")}
       />
       <span className="ml-2 inline-flex items-center gap-1 rounded-md border border-amber-700/50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
         AI
@@ -1943,6 +1981,177 @@ function TaskBoard({
   );
 }
 
+function RuntimeTraceModule({
+  members,
+  onSelectTask,
+  selectedSessionId,
+  sessions,
+  tasks,
+}: Readonly<{
+  members: Member[];
+  onSelectTask: (task: Task) => void;
+  selectedSessionId: string;
+  sessions: AgentSession[];
+  tasks: Task[];
+}>) {
+  const totalEvents = sessions.reduce((total, session) => total + session.events.length, 0);
+  const waitingSessions = sessions.filter((session) => session.status === "waiting_approval").length;
+  const toolEvents = sessions.reduce(
+    (total, session) => total + session.events.filter((event) => event.type === "tool").length,
+    0,
+  );
+
+  return (
+    <section className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <Activity className="size-4" />
+            Agent Session
+          </div>
+          <h2 className="mt-1 text-2xl font-semibold">运行轨迹</h2>
+          <p className="mt-1 text-sm text-slate-500">集中查看 AI 成员执行事件、工具调用、结果和等待审批状态。</p>
+        </div>
+      </div>
+      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <TeammateStat label="Session" value={String(sessions.length)} />
+        <TeammateStat label="事件总数" value={String(totalEvents)} />
+        <TeammateStat label="工具调用" value={String(toolEvents)} />
+        <TeammateStat label="等待审批" value={String(waitingSessions)} />
+      </div>
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+        {sessions.map((session) => {
+          const owner = members.find((member) => member.id === session.ownerId) ?? members[0];
+          const task = tasks.find((item) => item.id === session.taskId);
+
+          return (
+            <article
+              key={session.id}
+              className={`rounded-lg border bg-white p-4 shadow-sm ${
+                session.id === selectedSessionId ? "border-slate-950" : "border-stone-200"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-semibold">{session.title}</h3>
+                    <SessionStatusBadge session={session} />
+                  </div>
+                  <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
+                    <Avatar member={owner} small />
+                    <MemberName member={owner} small />
+                    <span>开始于 {session.startedAt}</span>
+                  </div>
+                </div>
+                {task ? (
+                  <button
+                    className="shrink-0 rounded-md border border-stone-200 bg-stone-50 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-white"
+                    type="button"
+                    onClick={() => onSelectTask(task)}
+                  >
+                    查看任务
+                  </button>
+                ) : null}
+              </div>
+              {task ? (
+                <div className="mt-3 rounded-md bg-stone-50 p-2 text-xs">
+                  <p className="text-slate-500">关联任务</p>
+                  <p className="mt-1 font-medium text-slate-700">{task.title}</p>
+                </div>
+              ) : null}
+              <div className="mt-3 max-h-80 space-y-3 overflow-y-auto pr-1">
+                {session.events.map((event) => (
+                  <RuntimeEventRow key={event.id} event={event} />
+                ))}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ApprovalQueueModule({
+  approvals,
+  members,
+  onDecision,
+  onSelectTask,
+  tasks,
+}: Readonly<{
+  approvals: Approval[];
+  members: Member[];
+  onDecision: (id: string, status: ApprovalStatus) => void;
+  onSelectTask: (task: Task) => void;
+  tasks: Task[];
+}>) {
+  const pendingCount = approvals.filter((approval) => approval.status === "pending").length;
+  const approvedCount = approvals.filter((approval) => approval.status === "approved").length;
+  const deniedCount = approvals.filter((approval) => approval.status === "denied").length;
+  const orderedApprovals = [...approvals].sort((left, right) => approvalSortWeight(left) - approvalSortWeight(right));
+
+  return (
+    <section className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <Inbox className="size-4" />
+            Review Gate
+          </div>
+          <h2 className="mt-1 text-2xl font-semibold">审批队列</h2>
+          <p className="mt-1 text-sm text-slate-500">集中处理高风险动作、技能调用和发布前确认。</p>
+        </div>
+      </div>
+      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <TeammateStat label="审批总数" value={String(approvals.length)} />
+        <TeammateStat label="待审批" value={String(pendingCount)} />
+        <TeammateStat label="已通过" value={String(approvedCount)} />
+        <TeammateStat label="已拒绝" value={String(deniedCount)} />
+      </div>
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+        {orderedApprovals.map((approval) => {
+          const requester = members.find((member) => member.id === approval.requesterId);
+          const task = tasks.find((item) => item.id === approval.taskId);
+
+          return (
+            <article key={approval.id} className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-slate-500">审批请求</p>
+                  <h3 className="mt-1 font-semibold">{approval.title}</h3>
+                </div>
+                <span className="shrink-0 rounded-md bg-stone-100 px-2 py-1 text-xs font-medium text-slate-700">
+                  {approvalLabel[approval.status]}
+                </span>
+              </div>
+              {requester ? (
+                <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
+                  <Avatar member={requester} small />
+                  <MemberName member={requester} small />
+                </div>
+              ) : null}
+              {task ? (
+                <button
+                  className="mb-3 flex w-full items-center justify-between rounded-md border border-stone-200 bg-stone-50 p-2 text-left text-xs hover:bg-white"
+                  type="button"
+                  onClick={() => onSelectTask(task)}
+                >
+                  <span>
+                    <span className="block text-slate-500">关联任务</span>
+                    <span className="mt-1 block font-medium text-slate-700">{task.title}</span>
+                  </span>
+                  <ChevronRight className="size-4 text-slate-400" />
+                </button>
+              ) : null}
+              <ApprovalCard approval={approval} compact onDecision={onDecision} />
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function ContextPanel({
   approval,
   member,
@@ -2085,18 +2294,7 @@ function ContextPanel({
         </div>
         <div ref={sessionTimelineRef} className="max-h-72 space-y-3 overflow-y-auto pr-1">
           {session.events.map((event) => (
-            <div key={event.id} className="flex gap-3">
-              <span className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-full ${eventTone[event.type]}`}>
-                {eventIcon(event.type)}
-              </span>
-              <div className="min-w-0 flex-1 border-b border-stone-100 pb-3 last:border-0 last:pb-0">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium">{event.title}</p>
-                  <span className="text-xs text-slate-400">{event.time}</span>
-                </div>
-                <p className="mt-1 text-xs leading-5 text-slate-500">{event.detail}</p>
-              </div>
-            </div>
+            <RuntimeEventRow key={event.id} event={event} />
           ))}
         </div>
       </section>
@@ -2149,6 +2347,23 @@ function ApprovalCard({
         </div>
       ) : null}
     </section>
+  );
+}
+
+function RuntimeEventRow({ event }: Readonly<{ event: AgentSession["events"][number] }>) {
+  return (
+    <div className="flex gap-3">
+      <span className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-full ${eventTone[event.type]}`}>
+        {eventIcon(event.type)}
+      </span>
+      <div className="min-w-0 flex-1 border-b border-stone-100 pb-3 last:border-0 last:pb-0">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-medium">{event.title}</p>
+          <span className="text-xs text-slate-400">{event.time}</span>
+        </div>
+        <p className="mt-1 text-xs leading-5 text-slate-500">{event.detail}</p>
+      </div>
+    </div>
   );
 }
 
@@ -3364,6 +3579,12 @@ function approvalCardClass(status: ApprovalStatus) {
   if (status === "pending") return "border-amber-200 bg-amber-50";
   if (status === "denied") return "border-rose-200 bg-rose-50";
   return "border-emerald-200 bg-emerald-50";
+}
+
+function approvalSortWeight(approval: Approval) {
+  if (approval.status === "pending") return 0;
+  if (approval.status === "denied") return 1;
+  return 2;
 }
 
 function readInitialWorkspaceState(): PersistedWorkspaceState {
