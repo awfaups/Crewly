@@ -31,6 +31,7 @@ import {
   channels as channelSeed,
   members as memberSeed,
   messages,
+  skillCatalog,
   sessions,
   tasks,
   workspace,
@@ -50,7 +51,10 @@ import type {
   ModelProvider,
   RuntimeEventType,
   SessionStatus,
+  SkillCatalogItem,
+  SkillCategory,
   SkillInvocationMode,
+  SkillRiskLevel,
   Task,
   TaskPriority,
   TaskStatus,
@@ -69,7 +73,7 @@ type TaskFormMode = "create" | "edit";
 
 type MemberFormMode = "create" | "edit";
 
-type WorkspaceModule = "workspace" | "ai-teammates";
+type WorkspaceModule = "workspace" | "ai-teammates" | "skills";
 
 type TaskFormState = {
   assigneeId: string;
@@ -197,26 +201,7 @@ const defaultMemoryConfig = {
 };
 
 const defaultSkillConfig = {
-  installedSkills: [
-    {
-      id: "web-search",
-      name: "Web 检索",
-      description: "查找公开资料并返回来源",
-      enabled: true,
-    },
-    {
-      id: "repo-inspector",
-      name: "仓库分析",
-      description: "阅读代码结构和变更影响",
-      enabled: true,
-    },
-    {
-      id: "doc-writer",
-      name: "文档撰写",
-      description: "生成规格、验收和交付文档",
-      enabled: true,
-    },
-  ],
+  installedSkills: skillCatalog.slice(0, 3).map(catalogItemToInstalledSkill),
   invocationMode: "调用前确认" as SkillInvocationMode,
   requireApprovalForExternalActions: true,
 };
@@ -282,7 +267,8 @@ export function CrewlyWorkspace() {
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [taskFormTaskId, setTaskFormTaskId] = useState<string | null>(null);
   const [taskFormValues, setTaskFormValues] = useState<TaskFormState>(emptyTaskForm);
-  const [workspaceState, setWorkspaceState] = useState(readInitialWorkspaceState);
+  const [storageReady, setStorageReady] = useState(false);
+  const [workspaceState, setWorkspaceState] = useState(initialWorkspaceState);
 
   const {
     approvals,
@@ -294,12 +280,21 @@ export function CrewlyWorkspace() {
   } = workspaceState;
 
   useEffect(() => {
+    queueMicrotask(() => {
+      setWorkspaceState(readInitialWorkspaceState());
+      setStorageReady(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!storageReady) return;
+
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(workspaceState));
     } catch {
       // Demo persistence should not block the workspace when storage is unavailable.
     }
-  }, [workspaceState]);
+  }, [storageReady, workspaceState]);
 
   const activeChannel = workspaceChannels.find((channel) => channel.id === activeChannelId) ?? workspaceChannels[0];
   const visibleTasks = useMemo(() => workspaceTasks.filter((task) => !task.archived), [workspaceTasks]);
@@ -792,6 +787,12 @@ export function CrewlyWorkspace() {
               label="AI 成员管理"
               onClick={() => setActiveModule("ai-teammates")}
             />
+            <SidebarShortcut
+              active={activeModule === "skills"}
+              icon={<Sparkles className="size-4" />}
+              label="技能库"
+              onClick={() => setActiveModule("skills")}
+            />
             <SidebarShortcut icon={<Activity className="size-4" />} label="运行轨迹" />
             <SidebarShortcut icon={<Inbox className="size-4" />} label="审批队列" />
           </SidebarSection>
@@ -843,12 +844,21 @@ export function CrewlyWorkspace() {
                 onSelectTask={selectTask}
               />
             </div>
-          ) : (
+          ) : activeModule === "ai-teammates" ? (
             <AITeammateManager
               activeMembers={activeAiMembers}
               archivedCount={workspaceMembers.filter((member) => member.kind === "ai" && member.archived).length}
+              skillCatalog={skillCatalog}
               selectedMemberId={selectedMember.id}
               onArchiveMember={archiveMember}
+              onCreateMember={openCreateMemberForm}
+              onEditMember={openEditMemberForm}
+              onSelectMember={setSelectedMemberId}
+            />
+          ) : (
+            <SkillLibraryModule
+              activeMembers={activeAiMembers}
+              skillCatalog={skillCatalog}
               onCreateMember={openCreateMemberForm}
               onEditMember={openEditMemberForm}
               onSelectMember={setSelectedMemberId}
@@ -860,6 +870,7 @@ export function CrewlyWorkspace() {
           <ContextPanel
             approval={taskApproval}
             member={selectedMember}
+            skillCatalog={skillCatalog}
             onArchiveTask={archiveTask}
             onArchiveMember={archiveMember}
             onDecision={decideApproval}
@@ -892,6 +903,7 @@ export function CrewlyWorkspace() {
       {memberFormOpen ? (
         <MemberFormDialog
           mode={memberFormMode}
+          skillCatalog={skillCatalog}
           values={memberFormValues}
           onChange={setMemberFormValues}
           onClose={() => setMemberFormOpen(false)}
@@ -994,6 +1006,12 @@ function ModuleNav({
         label="AI 成员"
         onClick={() => onChange("ai-teammates")}
       />
+      <ModuleNavButton
+        active={activeModule === "skills"}
+        icon={<Sparkles className="size-4" />}
+        label="技能库"
+        onClick={() => onChange("skills")}
+      />
       <span className="ml-2 inline-flex items-center gap-1 rounded-md border border-amber-700/50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
         AI
       </span>
@@ -1079,6 +1097,7 @@ function AITeammateManager({
   onEditMember,
   onSelectMember,
   selectedMemberId,
+  skillCatalog,
 }: Readonly<{
   activeMembers: Member[];
   archivedCount: number;
@@ -1087,6 +1106,7 @@ function AITeammateManager({
   onEditMember: (member: Member) => void;
   onSelectMember: (memberId: string) => void;
   selectedMemberId: string;
+  skillCatalog: SkillCatalogItem[];
 }>) {
   const memoryEnabledCount = activeMembers.filter((member) => member.memoryConfig?.enabled).length;
   const installedSkillCount = activeMembers.reduce(
@@ -1175,7 +1195,9 @@ function AITeammateManager({
                 <p className="text-slate-500">已安装技能</p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {enabledSkills.length > 0 ? (
-                    enabledSkills.map((skill) => <CapabilityPill key={skill.id} label={skill.name} />)
+                    enabledSkills.map((skill) => (
+                      <CapabilityPill key={skill.id} label={formatInstalledSkillLabel(skill, skillCatalog)} />
+                    ))
                   ) : (
                     <span className="text-slate-500">暂无启用技能</span>
                   )}
@@ -1207,6 +1229,126 @@ function AITeammateManager({
   );
 }
 
+function SkillLibraryModule({
+  activeMembers,
+  onCreateMember,
+  onEditMember,
+  onSelectMember,
+  skillCatalog,
+}: Readonly<{
+  activeMembers: Member[];
+  onCreateMember: () => void;
+  onEditMember: (member: Member) => void;
+  onSelectMember: (memberId: string) => void;
+  skillCatalog: SkillCatalogItem[];
+}>) {
+  const installedSkillIds = new Set(
+    activeMembers.flatMap((member) =>
+      (member.skillConfig?.installedSkills ?? [])
+        .filter((skill) => skill.enabled)
+        .map((skill) => skill.id),
+    ),
+  );
+  const totalInstallations = activeMembers.reduce(
+    (total, member) => total + (member.skillConfig?.installedSkills.filter((skill) => skill.enabled).length ?? 0),
+    0,
+  );
+
+  return (
+    <section className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <Sparkles className="size-4" />
+            技能市场
+          </div>
+          <h2 className="mt-1 text-2xl font-semibold">AI 成员技能库</h2>
+          <p className="mt-1 text-sm text-slate-500">为每个 AI 成员独立安装技能，并按调用策略控制使用方式。</p>
+        </div>
+        <button
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-slate-950 px-4 text-sm font-medium text-white hover:bg-slate-800"
+          type="button"
+          onClick={onCreateMember}
+        >
+          <Plus className="size-4" />
+          新建 AI 成员
+        </button>
+      </div>
+
+      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <TeammateStat label="技能总数" value={String(skillCatalog.length)} />
+        <TeammateStat label="已启用技能" value={String(installedSkillIds.size)} />
+        <TeammateStat label="安装次数" value={String(totalInstallations)} />
+        <TeammateStat label="AI 成员" value={String(activeMembers.length)} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+        {skillCatalog.map((skill) => {
+          const installedMembers = activeMembers.filter((member) => hasInstalledSkill(member, skill.id));
+
+          return (
+            <article key={skill.id} className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-semibold">{skill.name}</h3>
+                    <SkillCategoryBadge category={skill.category} />
+                    <SkillRiskBadge riskLevel={skill.riskLevel} />
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{skill.description}</p>
+                </div>
+                <span className="shrink-0 rounded-md bg-stone-100 px-2 py-1 text-xs font-medium text-slate-600">
+                  {installedMembers.length} 人安装
+                </span>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+                <InfoListTile label="权限" items={skill.permissions} />
+                <InfoListTile label="适用场景" items={skill.useCases} />
+              </div>
+
+              <div className="mt-3 rounded-md bg-stone-50 p-2 text-xs">
+                <p className="text-slate-500">已安装成员</p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {installedMembers.length > 0 ? (
+                    installedMembers.map((member) => (
+                      <button
+                        key={member.id}
+                        className="inline-flex items-center gap-1.5 rounded-md bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-stone-100"
+                        type="button"
+                        onClick={() => onSelectMember(member.id)}
+                      >
+                        <Avatar member={member} small />
+                        {member.name}
+                      </button>
+                    ))
+                  ) : (
+                    <span className="text-slate-500">暂无成员安装</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {activeMembers.slice(0, 3).map((member) => (
+                  <button
+                    key={member.id}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-stone-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-stone-50"
+                    type="button"
+                    onClick={() => onEditMember(member)}
+                  >
+                    <Edit3 className="size-4" />
+                    配置 {member.name}
+                  </button>
+                ))}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function TeammateStat({
   label,
   value,
@@ -1227,6 +1369,50 @@ function CapabilityPill({ label }: Readonly<{ label: string }>) {
     <span className="rounded-md bg-stone-100 px-2 py-1 text-xs font-medium text-slate-600">
       {label}
     </span>
+  );
+}
+
+function SkillCategoryBadge({ category }: Readonly<{ category: SkillCategory }>) {
+  return (
+    <span className="rounded-md border border-cyan-200 bg-cyan-50 px-2 py-1 text-xs font-medium text-cyan-700">
+      {category}
+    </span>
+  );
+}
+
+function SkillRiskBadge({ riskLevel }: Readonly<{ riskLevel: SkillRiskLevel }>) {
+  const className =
+    riskLevel === "高"
+      ? "border-rose-200 bg-rose-50 text-rose-700"
+      : riskLevel === "中"
+        ? "border-amber-200 bg-amber-50 text-amber-800"
+        : "border-emerald-200 bg-emerald-50 text-emerald-700";
+
+  return (
+    <span className={`rounded-md border px-2 py-1 text-xs font-medium ${className}`}>
+      {riskLevel}风险
+    </span>
+  );
+}
+
+function InfoListTile({
+  items,
+  label,
+}: Readonly<{
+  items: string[];
+  label: string;
+}>) {
+  return (
+    <div className="rounded-md bg-stone-50 p-2">
+      <p className="text-slate-500">{label}</p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {items.map((item) => (
+          <span key={item} className="rounded-md bg-white px-2 py-1 font-medium text-slate-600">
+            {item}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1472,6 +1658,7 @@ function ContextPanel({
   onEditTask,
   onTaskStatusAdvance,
   session,
+  skillCatalog,
   task,
 }: Readonly<{
   approval?: Approval;
@@ -1483,6 +1670,7 @@ function ContextPanel({
   onEditTask: (task: Task) => void;
   onTaskStatusAdvance: (taskId: string) => void;
   session: AgentSession;
+  skillCatalog: SkillCatalogItem[];
   task: Task;
 }>) {
   const sessionTimelineRef = useRef<HTMLDivElement>(null);
@@ -1557,6 +1745,7 @@ function ContextPanel({
         {member.kind === "ai" ? (
           <TeammateRuntimeSummary
             memory={member.memoryConfig ?? defaultMemoryConfig}
+            skillCatalog={skillCatalog}
             skills={member.skillConfig ?? defaultSkillConfig}
           />
         ) : null}
@@ -1835,19 +2024,34 @@ function MemberFormDialog({
   onChange,
   onClose,
   onSubmit,
+  skillCatalog,
   values,
 }: Readonly<{
   mode: MemberFormMode;
   onChange: (values: MemberFormState) => void;
   onClose: () => void;
   onSubmit: (values: MemberFormState) => void;
+  skillCatalog: SkillCatalogItem[];
   values: MemberFormState;
 }>) {
+  const selectedSkillIds = useMemo(() => parseInstalledSkills(values.installedSkillsText), [values.installedSkillsText]);
+  const selectedSkillIdSet = useMemo(() => new Set(selectedSkillIds.map((skill) => skill.id)), [selectedSkillIds]);
+  const customSkills = selectedSkillIds.filter((skill) => !skillCatalog.some((item) => item.id === skill.id));
+
   function update<K extends keyof MemberFormState>(key: K, value: MemberFormState[K]) {
     onChange({
       ...values,
       [key]: value,
     });
+  }
+
+  function toggleCatalogSkill(skill: SkillCatalogItem, checked: boolean) {
+    const currentSkills = parseInstalledSkills(values.installedSkillsText);
+    const nextSkills = checked
+      ? mergeInstalledSkill(currentSkills, catalogItemToInstalledSkill(skill))
+      : currentSkills.filter((item) => item.id !== skill.id);
+
+    update("installedSkillsText", skillsToText(nextSkills));
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -2116,15 +2320,29 @@ function MemberFormDialog({
                 onChange={(checked) => update("skillApprovalRequired", checked)}
               />
             </div>
-            <label className="mt-3 block">
-              <span className="text-sm font-medium text-slate-700">已安装技能</span>
-              <textarea
-                className="mt-1 min-h-28 w-full resize-none rounded-md border border-stone-300 bg-white px-3 py-2 font-mono text-xs outline-none focus:border-slate-950"
-                placeholder="skill-id | 技能名 | 技能描述，每行一个"
-                value={values.installedSkillsText}
-                onChange={(event) => update("installedSkillsText", event.target.value)}
-              />
-            </label>
+            <div className="mt-3">
+              <p className="text-sm font-medium text-slate-700">技能库安装</p>
+              <div className="mt-2 grid grid-cols-1 gap-2">
+                {skillCatalog.map((skill) => (
+                  <SkillInstallCheckbox
+                    key={skill.id}
+                    checked={selectedSkillIdSet.has(skill.id)}
+                    skill={skill}
+                    onChange={(checked) => toggleCatalogSkill(skill, checked)}
+                  />
+                ))}
+              </div>
+              {customSkills.length > 0 ? (
+                <div className="mt-3 rounded-md border border-stone-200 bg-white p-2 text-xs">
+                  <p className="text-slate-500">自定义技能</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {customSkills.map((skill) => (
+                      <CapabilityPill key={skill.id} label={skill.name} />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
         <DialogActions submitLabel={mode === "create" ? "创建 AI 成员" : "保存配置"} onClose={onClose} />
@@ -2200,6 +2418,42 @@ function ModelCapabilityCheckbox({
         onChange={(event) => onChange(event.target.checked)}
       />
       <span>{label}</span>
+    </label>
+  );
+}
+
+function SkillInstallCheckbox({
+  checked,
+  onChange,
+  skill,
+}: Readonly<{
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  skill: SkillCatalogItem;
+}>) {
+  return (
+    <label className="flex items-start gap-3 rounded-md border border-stone-200 bg-white p-3 text-slate-700">
+      <input
+        checked={checked}
+        className="mt-1 size-4 shrink-0 accent-slate-950"
+        type="checkbox"
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-slate-800">{skill.name}</span>
+          <SkillCategoryBadge category={skill.category} />
+          <SkillRiskBadge riskLevel={skill.riskLevel} />
+        </span>
+        <span className="mt-1 block text-xs leading-5 text-slate-500">{skill.description}</span>
+        <span className="mt-2 flex flex-wrap gap-1.5">
+          {skill.permissions.map((permission) => (
+            <span key={permission} className="rounded-md bg-stone-100 px-2 py-1 text-[11px] font-medium text-slate-600">
+              {permission}
+            </span>
+          ))}
+        </span>
+      </span>
     </label>
   );
 }
@@ -2370,9 +2624,11 @@ function ModelConfigSummary({ config }: Readonly<{ config: ModelConfig }>) {
 
 function TeammateRuntimeSummary({
   memory,
+  skillCatalog,
   skills,
 }: Readonly<{
   memory: typeof defaultMemoryConfig;
+  skillCatalog: SkillCatalogItem[];
   skills: typeof defaultSkillConfig;
 }>) {
   const enabledSkills = skills.installedSkills.filter((skill) => skill.enabled);
@@ -2387,10 +2643,28 @@ function TeammateRuntimeSummary({
       </div>
       {memory.notes ? <p className="mt-3 text-xs leading-5 text-slate-500">{memory.notes}</p> : null}
       <div className="mt-3 flex flex-wrap gap-1.5">
-        {enabledSkills.map((skill) => (
-          <CapabilityPill key={skill.id} label={skill.name} />
-        ))}
+        {enabledSkills.length > 0 ? (
+          enabledSkills.map((skill) => {
+            const catalogSkill = findCatalogSkill(skill.id, skillCatalog);
+
+            return catalogSkill ? (
+              <span
+                key={skill.id}
+                className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-xs font-medium text-slate-600"
+              >
+                {catalogSkill.category} / {catalogSkill.name}
+              </span>
+            ) : (
+              <CapabilityPill key={skill.id} label={skill.name} />
+            );
+          })
+        ) : (
+          <span className="text-xs text-slate-500">暂无启用技能</span>
+        )}
       </div>
+      <p className="mt-3 text-xs text-slate-500">
+        {skills.requireApprovalForExternalActions ? "外部动作需要审批" : "外部动作按策略直接处理"}
+      </p>
     </div>
   );
 }
@@ -2607,15 +2881,12 @@ function normalizeSkillConfig(config?: Partial<typeof defaultSkillConfig>) {
   return {
     ...defaultSkillConfig,
     ...config,
-    installedSkills:
-      config?.installedSkills && config.installedSkills.length > 0
-        ? config.installedSkills
-        : defaultSkillConfig.installedSkills,
+    installedSkills: config?.installedSkills ?? defaultSkillConfig.installedSkills,
   };
 }
 
 function parseInstalledSkills(value: string) {
-  const skills = value
+  return value
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
@@ -2630,12 +2901,40 @@ function parseInstalledSkills(value: string) {
         enabled: true,
       };
     });
-
-  return skills.length > 0 ? skills : defaultSkillConfig.installedSkills;
 }
 
 function skillsToText(skills: typeof defaultSkillConfig.installedSkills) {
   return skills.map((skill) => `${skill.id} | ${skill.name} | ${skill.description}`).join("\n");
+}
+
+function catalogItemToInstalledSkill(skill: SkillCatalogItem) {
+  return {
+    id: skill.id,
+    name: skill.name,
+    description: skill.description,
+    enabled: true,
+  };
+}
+
+function mergeInstalledSkill(skills: typeof defaultSkillConfig.installedSkills, nextSkill: typeof defaultSkillConfig.installedSkills[number]) {
+  if (skills.some((skill) => skill.id === nextSkill.id)) {
+    return skills.map((skill) => (skill.id === nextSkill.id ? { ...skill, ...nextSkill, enabled: true } : skill));
+  }
+
+  return [...skills, nextSkill];
+}
+
+function findCatalogSkill(skillId: string, catalog: SkillCatalogItem[]) {
+  return catalog.find((skill) => skill.id === skillId);
+}
+
+function hasInstalledSkill(member: Member, skillId: string) {
+  return Boolean(member.skillConfig?.installedSkills.some((skill) => skill.id === skillId && skill.enabled));
+}
+
+function formatInstalledSkillLabel(skill: typeof defaultSkillConfig.installedSkills[number], catalog: SkillCatalogItem[]) {
+  const catalogSkill = findCatalogSkill(skill.id, catalog);
+  return catalogSkill ? `${catalogSkill.category} / ${catalogSkill.name}` : skill.name;
 }
 
 function slugifySkillId(value: string) {

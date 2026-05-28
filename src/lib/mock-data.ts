@@ -4,6 +4,7 @@ import type {
   Channel,
   Member,
   Message,
+  SkillCatalogItem,
   Task,
   Workspace,
 } from "./types";
@@ -56,6 +57,63 @@ export const members: Member[] = [
     role: "风险检查与验收",
     avatar: "G",
     presence: "away",
+  },
+];
+
+export const skillCatalog: SkillCatalogItem[] = [
+  {
+    id: "web-search",
+    name: "Web 检索",
+    description: "查找公开资料并返回来源，适合竞品、政策、资料核验。",
+    category: "研究",
+    riskLevel: "中",
+    permissions: ["访问公开网页", "读取搜索结果"],
+    useCases: ["竞品调研", "事实核验", "资料补充"],
+  },
+  {
+    id: "repo-inspector",
+    name: "仓库分析",
+    description: "阅读代码结构、定位文件、分析变更影响。",
+    category: "代码",
+    riskLevel: "低",
+    permissions: ["读取仓库文件", "读取 Git diff"],
+    useCases: ["代码理解", "影响面分析", "技术方案"],
+  },
+  {
+    id: "doc-writer",
+    name: "文档撰写",
+    description: "生成需求、规格、验收记录和交付说明。",
+    category: "文档",
+    riskLevel: "低",
+    permissions: ["读取任务上下文", "写入文档草稿"],
+    useCases: ["6A 文档", "验收报告", "README"],
+  },
+  {
+    id: "release-checker",
+    name: "发布检查",
+    description: "检查构建、部署、风险项和上线前待办。",
+    category: "交付",
+    riskLevel: "中",
+    permissions: ["读取构建日志", "读取部署状态"],
+    useCases: ["上线检查", "部署复盘", "发布风险"],
+  },
+  {
+    id: "security-review",
+    name: "安全审查",
+    description: "检查密钥、权限、外部调用和高风险操作。",
+    category: "安全",
+    riskLevel: "高",
+    permissions: ["读取配置摘要", "识别敏感字段"],
+    useCases: ["密钥风险", "权限审查", "审批建议"],
+  },
+  {
+    id: "meeting-summarizer",
+    name: "会议总结",
+    description: "把频道讨论整理为结论、行动项和责任人。",
+    category: "沟通",
+    riskLevel: "低",
+    permissions: ["读取频道消息", "生成摘要"],
+    useCases: ["周会纪要", "需求同步", "行动项"],
   },
 ];
 

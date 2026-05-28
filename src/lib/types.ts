@@ -19,6 +19,10 @@ export type MemoryScope = "仅当前频道" | "当前工作区" | "跨工作区"
 
 export type SkillInvocationMode = "自动调用" | "调用前确认" | "手动调用";
 
+export type SkillCategory = "研究" | "代码" | "文档" | "交付" | "安全" | "沟通";
+
+export type SkillRiskLevel = "低" | "中" | "高";
+
 export type TaskStatus = "todo" | "doing" | "review" | "done";
 
 export type TaskPriority = "高" | "中" | "低";
@@ -83,6 +87,16 @@ export type InstalledSkill = {
   name: string;
   description: string;
   enabled: boolean;
+};
+
+export type SkillCatalogItem = {
+  id: string;
+  name: string;
+  description: string;
+  category: SkillCategory;
+  permissions: string[];
+  riskLevel: SkillRiskLevel;
+  useCases: string[];
 };
 
 export type TeammateSkillConfig = {
