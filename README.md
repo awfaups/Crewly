@@ -47,7 +47,31 @@ npm run dev
 ```bash
 npm run lint
 npm run build
+npm run build:api
 ```
+
+## 后端开发
+
+第一阶段后端已经加入 Fastify + PostgreSQL + Drizzle 基础设施。前端当前仍默认使用本地 demo 数据，后端先提供健康检查和核心资源读取 API 骨架。
+
+```bash
+cp .env.example .env
+npm run dev:api
+```
+
+默认 API 地址：
+
+- 健康检查：`http://127.0.0.1:4000/health`
+- API 状态：`http://127.0.0.1:4000/api/status`
+
+数据库迁移：
+
+```bash
+npm run db:generate
+npm run db:migrate
+```
+
+`.env` 中只填写本地或部署环境的 `DATABASE_URL`，不要提交真实连接串或密钥。
 
 ## 主要结构
 
@@ -60,6 +84,12 @@ src/features/workspace
 
 src/lib
   领域类型和 mock data
+
+server
+  Fastify API、Drizzle schema 和数据库连接
+
+drizzle
+  PostgreSQL 迁移 SQL
 
 docs/2026_05_27_Crewly_Web版初始化_v1
   6A 工作流文档、验收记录和后续 TODO
@@ -96,12 +126,13 @@ docs/2026_05_27_Crewly_Web版初始化_v1
 - 可进入运行轨迹模块查看所有 Agent Session、事件、工具调用和等待审批状态
 - 可进入审批队列模块集中通过或拒绝审批请求
 
-暂不包含真实登录、后端 API、模型调用、GitHub 集成、执行容器或 WebSocket。
+暂不包含真实登录、模型调用、GitHub 集成、执行容器或 WebSocket。后端 API 已有第一阶段骨架，但前端尚未切换到远程数据源。
 
 ## 后续路线
 
 - 接入真实账户和 workspace 数据
 - 将 mock task/session/approval 替换为 API 数据
+- 增加数据库 seed 和写入 API
 - 增加实时消息和 Agent runtime event stream
 - 增加任务状态流转和审批审计记录
 - 扩展移动端体验和可访问性检查
