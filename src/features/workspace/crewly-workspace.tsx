@@ -564,6 +564,30 @@ export function CrewlyWorkspace() {
     }));
   }
 
+  function saveSkillInstall(skill: SkillCatalogItem, memberIds: string[]) {
+    const selectedMemberIds = new Set(memberIds);
+
+    setWorkspaceState((current) => ({
+      ...current,
+      members: current.members.map((member) => {
+        if (member.kind !== "ai" || member.archived) return member;
+
+        const currentSkillConfig = normalizeSkillConfig(member.skillConfig);
+        const installedSkills = selectedMemberIds.has(member.id)
+          ? mergeInstalledSkill(currentSkillConfig.installedSkills, catalogItemToInstalledSkill(skill))
+          : currentSkillConfig.installedSkills.filter((item) => item.id !== skill.id);
+
+        return {
+          ...member,
+          skillConfig: {
+            ...currentSkillConfig,
+            installedSkills,
+          },
+        };
+      }),
+    }));
+  }
+
   function selectTask(task: Task) {
     setSelectedTaskId(task.id);
     setActiveChannelId(task.channelId);
@@ -934,7 +958,7 @@ export function CrewlyWorkspace() {
               activeMembers={activeAiMembers}
               skillCatalog={skillCatalog}
               onCreateMember={openCreateMemberForm}
-              onEditMember={openEditMemberForm}
+              onSaveSkillInstall={saveSkillInstall}
               onSelectMember={setSelectedMemberId}
             />
           )}
@@ -1307,16 +1331,17 @@ function AITeammateManager({
 function SkillLibraryModule({
   activeMembers,
   onCreateMember,
-  onEditMember,
+  onSaveSkillInstall,
   onSelectMember,
   skillCatalog,
 }: Readonly<{
   activeMembers: Member[];
   onCreateMember: () => void;
-  onEditMember: (member: Member) => void;
+  onSaveSkillInstall: (skill: SkillCatalogItem, memberIds: string[]) => void;
   onSelectMember: (memberId: string) => void;
   skillCatalog: SkillCatalogItem[];
 }>) {
+  const [installSkill, setInstallSkill] = useState<SkillCatalogItem | null>(null);
   const installedSkillIds = new Set(
     activeMembers.flatMap((member) =>
       (member.skillConfig?.installedSkills ?? [])
@@ -1404,22 +1429,30 @@ function SkillLibraryModule({
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                {activeMembers.slice(0, 3).map((member) => (
-                  <button
-                    key={member.id}
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-stone-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-stone-50"
-                    type="button"
-                    onClick={() => onEditMember(member)}
-                  >
-                    <Edit3 className="size-4" />
-                    配置 {member.name}
-                  </button>
-                ))}
+                <button
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-stone-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-stone-50"
+                  type="button"
+                  onClick={() => setInstallSkill(skill)}
+                >
+                  <Edit3 className="size-4" />
+                  配置安装成员
+                </button>
               </div>
             </article>
           );
         })}
       </div>
+      {installSkill ? (
+        <SkillInstallDialog
+          activeMembers={activeMembers}
+          skill={installSkill}
+          onClose={() => setInstallSkill(null)}
+          onSubmit={(memberIds) => {
+            onSaveSkillInstall(installSkill, memberIds);
+            setInstallSkill(null);
+          }}
+        />
+      ) : null}
     </section>
   );
 }
@@ -1435,6 +1468,71 @@ function TeammateStat({
     <div className="rounded-lg border border-stone-200 bg-white p-3 shadow-sm">
       <p className="text-xs text-slate-500">{label}</p>
       <p className="mt-1 text-2xl font-semibold">{value}</p>
+    </div>
+  );
+}
+
+function SkillInstallDialog({
+  activeMembers,
+  onClose,
+  onSubmit,
+  skill,
+}: Readonly<{
+  activeMembers: Member[];
+  onClose: () => void;
+  onSubmit: (memberIds: string[]) => void;
+  skill: SkillCatalogItem;
+}>) {
+  const [memberIds, setMemberIds] = useState(() =>
+    activeMembers.filter((member) => hasInstalledSkill(member, skill.id)).map((member) => member.id),
+  );
+
+  function toggleMember(memberId: string, checked: boolean) {
+    setMemberIds((current) =>
+      checked ? Array.from(new Set([...current, memberId])) : current.filter((id) => id !== memberId),
+    );
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmit(memberIds);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4">
+      <form className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl" onSubmit={handleSubmit}>
+        <DialogHeader eyebrow="技能安装" title={`配置 ${skill.name}`} onClose={onClose} />
+        <div className="rounded-md border border-stone-200 bg-stone-50 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <SkillCategoryBadge category={skill.category} />
+            <SkillRiskBadge riskLevel={skill.riskLevel} />
+          </div>
+          <p className="mt-2 text-sm leading-6 text-slate-600">{skill.description}</p>
+        </div>
+        <div className="mt-3 space-y-2">
+          {activeMembers.map((member) => (
+            <label
+              key={member.id}
+              className="flex items-center justify-between gap-3 rounded-md border border-stone-200 bg-white p-3"
+            >
+              <span className="flex min-w-0 items-center gap-3">
+                <Avatar member={member} />
+                <span className="min-w-0">
+                  <MemberName member={member} />
+                  <span className="mt-1 block truncate text-xs text-slate-500">{member.role}</span>
+                </span>
+              </span>
+              <input
+                checked={memberIds.includes(member.id)}
+                className="size-4 shrink-0 accent-slate-950"
+                type="checkbox"
+                onChange={(event) => toggleMember(member.id, event.target.checked)}
+              />
+            </label>
+          ))}
+        </div>
+        <DialogActions submitLabel="保存安装" onClose={onClose} />
+      </form>
     </div>
   );
 }
