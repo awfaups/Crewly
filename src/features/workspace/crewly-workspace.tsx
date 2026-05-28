@@ -67,6 +67,7 @@ type PersistedWorkspaceState = {
   messages: Message[];
   sessions: AgentSession[];
   tasks: Task[];
+  workspaceSkillIds: string[];
 };
 
 type TaskFormMode = "create" | "edit";
@@ -129,6 +130,7 @@ const initialWorkspaceState: PersistedWorkspaceState = {
   messages,
   sessions,
   tasks,
+  workspaceSkillIds: skillCatalog.slice(0, 3).map((skill) => skill.id),
 };
 
 const emptyTaskForm: TaskFormState = {
@@ -277,6 +279,7 @@ export function CrewlyWorkspace() {
     messages: workspaceMessages,
     sessions: workspaceSessions,
     tasks: workspaceTasks,
+    workspaceSkillIds,
   } = workspaceState;
 
   useEffect(() => {
@@ -307,6 +310,10 @@ export function CrewlyWorkspace() {
     workspaceMembers[0];
   const activeAiMembers = workspaceMembers.filter((member) => member.kind === "ai" && !member.archived);
   const assignableMembers = workspaceMembers.filter((member) => !member.archived);
+  const crewlySkillCatalog = useMemo(
+    () => skillCatalog.filter((skill) => workspaceSkillIds.includes(skill.id)),
+    [workspaceSkillIds],
+  );
   const channelMessages = workspaceMessages.filter((message) => message.channelId === activeChannel.id);
   const taskApproval =
     [...approvals].reverse().find((approval) => approval.taskId === selectedTask.id && approval.status === "pending") ??
@@ -564,27 +571,10 @@ export function CrewlyWorkspace() {
     }));
   }
 
-  function saveSkillInstall(skill: SkillCatalogItem, memberIds: string[]) {
-    const selectedMemberIds = new Set(memberIds);
-
+  function installCrewlySkill(skillId: string) {
     setWorkspaceState((current) => ({
       ...current,
-      members: current.members.map((member) => {
-        if (member.kind !== "ai" || member.archived) return member;
-
-        const currentSkillConfig = normalizeSkillConfig(member.skillConfig);
-        const installedSkills = selectedMemberIds.has(member.id)
-          ? mergeInstalledSkill(currentSkillConfig.installedSkills, catalogItemToInstalledSkill(skill))
-          : currentSkillConfig.installedSkills.filter((item) => item.id !== skill.id);
-
-        return {
-          ...member,
-          skillConfig: {
-            ...currentSkillConfig,
-            installedSkills,
-          },
-        };
-      }),
+      workspaceSkillIds: Array.from(new Set([...current.workspaceSkillIds, skillId])),
     }));
   }
 
@@ -888,7 +878,7 @@ export function CrewlyWorkspace() {
             <SidebarShortcut
               active={activeModule === "skills"}
               icon={<Sparkles className="size-4" />}
-              label="技能库"
+              label="技能市场"
               onClick={() => setActiveModule("skills")}
             />
             <SidebarShortcut icon={<Activity className="size-4" />} label="运行轨迹" />
@@ -946,7 +936,7 @@ export function CrewlyWorkspace() {
             <AITeammateManager
               activeMembers={activeAiMembers}
               archivedCount={workspaceMembers.filter((member) => member.kind === "ai" && member.archived).length}
-              skillCatalog={skillCatalog}
+              skillCatalog={crewlySkillCatalog}
               selectedMemberId={selectedMember.id}
               onArchiveMember={archiveMember}
               onCreateMember={openCreateMemberForm}
@@ -957,8 +947,8 @@ export function CrewlyWorkspace() {
             <SkillLibraryModule
               activeMembers={activeAiMembers}
               skillCatalog={skillCatalog}
-              onCreateMember={openCreateMemberForm}
-              onSaveSkillInstall={saveSkillInstall}
+              workspaceSkillIds={workspaceSkillIds}
+              onInstallCrewlySkill={installCrewlySkill}
               onSelectMember={setSelectedMemberId}
             />
           )}
@@ -968,7 +958,7 @@ export function CrewlyWorkspace() {
           <ContextPanel
             approval={taskApproval}
             member={selectedMember}
-            skillCatalog={skillCatalog}
+            skillCatalog={crewlySkillCatalog}
             onArchiveTask={archiveTask}
             onArchiveMember={archiveMember}
             onDecision={decideApproval}
@@ -1002,7 +992,7 @@ export function CrewlyWorkspace() {
       {memberFormOpen ? (
         <MemberFormDialog
           mode={memberFormMode}
-          skillCatalog={skillCatalog}
+          skillCatalog={crewlySkillCatalog}
           values={memberFormValues}
           onChange={setMemberFormValues}
           onClose={() => setMemberFormOpen(false)}
@@ -1108,7 +1098,7 @@ function ModuleNav({
       <ModuleNavButton
         active={activeModule === "skills"}
         icon={<Sparkles className="size-4" />}
-        label="技能库"
+        label="技能市场"
         onClick={() => onChange("skills")}
       />
       <span className="ml-2 inline-flex items-center gap-1 rounded-md border border-amber-700/50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
@@ -1237,7 +1227,7 @@ function AITeammateManager({
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <TeammateStat label="可用成员" value={String(activeMembers.length)} />
         <TeammateStat label="启用记忆" value={String(memoryEnabledCount)} />
-        <TeammateStat label="已装技能" value={String(installedSkillCount)} />
+        <TeammateStat label="启用技能" value={String(installedSkillCount)} />
         <TeammateStat label="已停用" value={String(archivedCount)} />
       </div>
 
@@ -1291,7 +1281,7 @@ function AITeammateManager({
                 {config.capabilities.imageInput ? <CapabilityPill label="图片输入" /> : null}
               </div>
               <div className="mt-3 rounded-md bg-stone-50 p-2 text-xs">
-                <p className="text-slate-500">已安装技能</p>
+                <p className="text-slate-500">已启用技能</p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {enabledSkills.length > 0 ? (
                     enabledSkills.map((skill) => (
@@ -1330,27 +1320,21 @@ function AITeammateManager({
 
 function SkillLibraryModule({
   activeMembers,
-  onCreateMember,
-  onSaveSkillInstall,
+  onInstallCrewlySkill,
   onSelectMember,
   skillCatalog,
+  workspaceSkillIds,
 }: Readonly<{
   activeMembers: Member[];
-  onCreateMember: () => void;
-  onSaveSkillInstall: (skill: SkillCatalogItem, memberIds: string[]) => void;
+  onInstallCrewlySkill: (skillId: string) => void;
   onSelectMember: (memberId: string) => void;
   skillCatalog: SkillCatalogItem[];
+  workspaceSkillIds: string[];
 }>) {
-  const [installSkill, setInstallSkill] = useState<SkillCatalogItem | null>(null);
   const [skillInstallOpen, setSkillInstallOpen] = useState(false);
-  const selectedInstallSkill = installSkill ?? skillCatalog[0];
-  const installedSkillIds = new Set(
-    activeMembers.flatMap((member) =>
-      (member.skillConfig?.installedSkills ?? [])
-        .filter((skill) => skill.enabled)
-        .map((skill) => skill.id),
-    ),
-  );
+  const installedSkillIdSet = useMemo(() => new Set(workspaceSkillIds), [workspaceSkillIds]);
+  const crewlySkills = skillCatalog.filter((skill) => installedSkillIdSet.has(skill.id));
+  const marketplaceSkills = skillCatalog.filter((skill) => !installedSkillIdSet.has(skill.id));
   const totalInstallations = activeMembers.reduce(
     (total, member) => total + (member.skillConfig?.installedSkills.filter((skill) => skill.enabled).length ?? 0),
     0,
@@ -1364,41 +1348,30 @@ function SkillLibraryModule({
             <Sparkles className="size-4" />
             技能市场
           </div>
-          <h2 className="mt-1 text-2xl font-semibold">AI 成员技能库</h2>
-          <p className="mt-1 text-sm text-slate-500">为每个 AI 成员独立安装技能，并按调用策略控制使用方式。</p>
+          <h2 className="mt-1 text-2xl font-semibold">Crewly 技能市场</h2>
+          <p className="mt-1 text-sm text-slate-500">从 Skill 市场安装技能到 Crewly，再由 AI 成员按需启用和调用。</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-slate-950 px-4 text-sm font-medium text-white hover:bg-slate-800"
             type="button"
-            onClick={() => {
-              setInstallSkill(skillCatalog[0]);
-              setSkillInstallOpen(true);
-            }}
+            onClick={() => setSkillInstallOpen(true)}
           >
             <Sparkles className="size-4" />
-            技能安装
-          </button>
-          <button
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-stone-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-stone-50"
-            type="button"
-            onClick={onCreateMember}
-          >
-            <Plus className="size-4" />
-            新建 AI 成员
+            从 Skill 市场安装
           </button>
         </div>
       </div>
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <TeammateStat label="技能总数" value={String(skillCatalog.length)} />
-        <TeammateStat label="已启用技能" value={String(installedSkillIds.size)} />
-        <TeammateStat label="安装次数" value={String(totalInstallations)} />
-        <TeammateStat label="AI 成员" value={String(activeMembers.length)} />
+        <TeammateStat label="Skill 市场" value={String(skillCatalog.length)} />
+        <TeammateStat label="Crewly 已安装" value={String(crewlySkills.length)} />
+        <TeammateStat label="待安装" value={String(marketplaceSkills.length)} />
+        <TeammateStat label="成员启用次数" value={String(totalInstallations)} />
       </div>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        {skillCatalog.map((skill) => {
+        {crewlySkills.map((skill) => {
           const installedMembers = activeMembers.filter((member) => hasInstalledSkill(member, skill.id));
 
           return (
@@ -1413,7 +1386,7 @@ function SkillLibraryModule({
                   <p className="mt-2 text-sm leading-6 text-slate-600">{skill.description}</p>
                 </div>
                 <span className="shrink-0 rounded-md bg-stone-100 px-2 py-1 text-xs font-medium text-slate-600">
-                  {installedMembers.length} 人安装
+                  Crewly 已安装
                 </span>
               </div>
 
@@ -1423,7 +1396,7 @@ function SkillLibraryModule({
               </div>
 
               <div className="mt-3 rounded-md bg-stone-50 p-2 text-xs">
-                <p className="text-slate-500">已安装成员</p>
+                <p className="text-slate-500">已启用成员</p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {installedMembers.length > 0 ? (
                     installedMembers.map((member) => (
@@ -1438,38 +1411,25 @@ function SkillLibraryModule({
                       </button>
                     ))
                   ) : (
-                    <span className="text-slate-500">暂无成员安装</span>
+                    <span className="text-slate-500">暂无成员启用</span>
                   )}
                 </div>
               </div>
 
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-stone-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-stone-50"
-                  type="button"
-                  onClick={() => {
-                    setInstallSkill(skill);
-                    setSkillInstallOpen(true);
-                  }}
-                >
-                  <Edit3 className="size-4" />
-                  配置安装成员
-                </button>
-              </div>
+              <p className="mt-3 text-xs leading-5 text-slate-500">
+                成员启用入口在 AI 成员配置内，仅能选择已安装到 Crewly 的技能。
+              </p>
             </article>
           );
         })}
       </div>
-      {skillInstallOpen && selectedInstallSkill ? (
-        <SkillInstallDialog
-          key={selectedInstallSkill.id}
-          activeMembers={activeMembers}
-          skill={selectedInstallSkill}
+      {skillInstallOpen ? (
+        <SkillMarketplaceInstallDialog
+          installedSkillIds={workspaceSkillIds}
           skillCatalog={skillCatalog}
-          onChangeSkill={setInstallSkill}
           onClose={() => setSkillInstallOpen(false)}
-          onSubmit={(memberIds) => {
-            onSaveSkillInstall(selectedInstallSkill, memberIds);
+          onSubmit={(skillId) => {
+            onInstallCrewlySkill(skillId);
             setSkillInstallOpen(false);
           }}
         />
@@ -1493,84 +1453,60 @@ function TeammateStat({
   );
 }
 
-function SkillInstallDialog({
-  activeMembers,
-  onChangeSkill,
+function SkillMarketplaceInstallDialog({
+  installedSkillIds,
   onClose,
   onSubmit,
-  skill,
   skillCatalog,
 }: Readonly<{
-  activeMembers: Member[];
-  onChangeSkill: (skill: SkillCatalogItem) => void;
+  installedSkillIds: string[];
   onClose: () => void;
-  onSubmit: (memberIds: string[]) => void;
-  skill: SkillCatalogItem;
+  onSubmit: (skillId: string) => void;
   skillCatalog: SkillCatalogItem[];
 }>) {
-  const [memberIds, setMemberIds] = useState(() =>
-    activeMembers.filter((member) => hasInstalledSkill(member, skill.id)).map((member) => member.id),
-  );
-
-  function toggleMember(memberId: string, checked: boolean) {
-    setMemberIds((current) =>
-      checked ? Array.from(new Set([...current, memberId])) : current.filter((id) => id !== memberId),
-    );
-  }
+  const installedSkillIdSet = useMemo(() => new Set(installedSkillIds), [installedSkillIds]);
+  const installableSkills = skillCatalog.filter((skill) => !installedSkillIdSet.has(skill.id));
+  const [skillId, setSkillId] = useState(installableSkills[0]?.id ?? "");
+  const selectedSkill = skillCatalog.find((skill) => skill.id === skillId);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onSubmit(memberIds);
+    if (skillId) onSubmit(skillId);
   }
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4">
       <form className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl" onSubmit={handleSubmit}>
-        <DialogHeader eyebrow="技能安装" title={`配置 ${skill.name}`} onClose={onClose} />
+        <DialogHeader eyebrow="Skill 市场" title="安装到 Crewly 技能市场" onClose={onClose} />
         <TaskSelect
-          label="选择技能"
-          value={skill.id}
-          onChange={(skillId) => {
-            const nextSkill = skillCatalog.find((item) => item.id === skillId);
-            if (nextSkill) onChangeSkill(nextSkill);
-          }}
+          label="选择 Skill"
+          value={skillId}
+          onChange={setSkillId}
         >
-          {skillCatalog.map((item) => (
+          {installableSkills.map((item) => (
             <option key={item.id} value={item.id}>
               {item.name} · {item.category} · {item.riskLevel}风险
             </option>
           ))}
         </TaskSelect>
-        <div className="mt-3 rounded-md border border-stone-200 bg-stone-50 p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <SkillCategoryBadge category={skill.category} />
-            <SkillRiskBadge riskLevel={skill.riskLevel} />
+        {selectedSkill ? (
+          <div className="mt-3 rounded-md border border-stone-200 bg-stone-50 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <SkillCategoryBadge category={selectedSkill.category} />
+              <SkillRiskBadge riskLevel={selectedSkill.riskLevel} />
+            </div>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{selectedSkill.description}</p>
+            <div className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+              <InfoListTile label="权限" items={selectedSkill.permissions} />
+              <InfoListTile label="适用场景" items={selectedSkill.useCases} />
+            </div>
           </div>
-          <p className="mt-2 text-sm leading-6 text-slate-600">{skill.description}</p>
-        </div>
-        <div className="mt-3 space-y-2">
-          {activeMembers.map((member) => (
-            <label
-              key={member.id}
-              className="flex items-center justify-between gap-3 rounded-md border border-stone-200 bg-white p-3"
-            >
-              <span className="flex min-w-0 items-center gap-3">
-                <Avatar member={member} />
-                <span className="min-w-0">
-                  <MemberName member={member} />
-                  <span className="mt-1 block truncate text-xs text-slate-500">{member.role}</span>
-                </span>
-              </span>
-              <input
-                checked={memberIds.includes(member.id)}
-                className="size-4 shrink-0 accent-slate-950"
-                type="checkbox"
-                onChange={(event) => toggleMember(member.id, event.target.checked)}
-              />
-            </label>
-          ))}
-        </div>
-        <DialogActions submitLabel="保存安装" onClose={onClose} />
+        ) : (
+          <div className="mt-3 rounded-md border border-stone-200 bg-stone-50 p-3 text-sm text-slate-500">
+            Skill 市场中的技能已全部安装到 Crewly。
+          </div>
+        )}
+        <DialogActions submitLabel="安装到 Crewly" onClose={onClose} />
       </form>
     </div>
   );
@@ -2521,7 +2457,7 @@ function MemberFormDialog({
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-slate-800">独立技能</p>
-                <p className="mt-1 text-xs text-slate-500">每个 AI 成员维护自己的技能安装清单和调用策略。</p>
+                <p className="mt-1 text-xs text-slate-500">每个 AI 成员从 Crewly 已安装技能中独立启用，并维护调用策略。</p>
               </div>
               <Sparkles className="size-4 shrink-0 text-slate-500" />
             </div>
@@ -2544,7 +2480,7 @@ function MemberFormDialog({
               />
             </div>
             <div className="mt-3">
-              <p className="text-sm font-medium text-slate-700">技能库安装</p>
+              <p className="text-sm font-medium text-slate-700">启用 Crewly 技能</p>
               <div className="mt-2 grid grid-cols-1 gap-2">
                 {skillCatalog.map((skill) => (
                   <SkillInstallCheckbox
@@ -3288,7 +3224,17 @@ function normalizeWorkspaceState(state: Partial<PersistedWorkspaceState>): Persi
     messages: state.messages ?? messages,
     sessions: state.sessions ?? sessions,
     tasks: state.tasks ?? tasks,
+    workspaceSkillIds: normalizeWorkspaceSkillIds(state.workspaceSkillIds),
   };
+}
+
+function normalizeWorkspaceSkillIds(skillIds?: string[]) {
+  const catalogSkillIds = new Set(skillCatalog.map((skill) => skill.id));
+  const normalizedSkillIds = (skillIds ?? initialWorkspaceState.workspaceSkillIds).filter((skillId) =>
+    catalogSkillIds.has(skillId),
+  );
+
+  return normalizedSkillIds.length > 0 ? Array.from(new Set(normalizedSkillIds)) : initialWorkspaceState.workspaceSkillIds;
 }
 
 function normalizeMembers(items: Member[]) {
