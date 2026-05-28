@@ -1342,6 +1342,8 @@ function SkillLibraryModule({
   skillCatalog: SkillCatalogItem[];
 }>) {
   const [installSkill, setInstallSkill] = useState<SkillCatalogItem | null>(null);
+  const [skillInstallOpen, setSkillInstallOpen] = useState(false);
+  const selectedInstallSkill = installSkill ?? skillCatalog[0];
   const installedSkillIds = new Set(
     activeMembers.flatMap((member) =>
       (member.skillConfig?.installedSkills ?? [])
@@ -1365,14 +1367,27 @@ function SkillLibraryModule({
           <h2 className="mt-1 text-2xl font-semibold">AI 成员技能库</h2>
           <p className="mt-1 text-sm text-slate-500">为每个 AI 成员独立安装技能，并按调用策略控制使用方式。</p>
         </div>
-        <button
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-slate-950 px-4 text-sm font-medium text-white hover:bg-slate-800"
-          type="button"
-          onClick={onCreateMember}
-        >
-          <Plus className="size-4" />
-          新建 AI 成员
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-slate-950 px-4 text-sm font-medium text-white hover:bg-slate-800"
+            type="button"
+            onClick={() => {
+              setInstallSkill(skillCatalog[0]);
+              setSkillInstallOpen(true);
+            }}
+          >
+            <Sparkles className="size-4" />
+            技能安装
+          </button>
+          <button
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-stone-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-stone-50"
+            type="button"
+            onClick={onCreateMember}
+          >
+            <Plus className="size-4" />
+            新建 AI 成员
+          </button>
+        </div>
       </div>
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -1432,7 +1447,10 @@ function SkillLibraryModule({
                 <button
                   className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-stone-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-stone-50"
                   type="button"
-                  onClick={() => setInstallSkill(skill)}
+                  onClick={() => {
+                    setInstallSkill(skill);
+                    setSkillInstallOpen(true);
+                  }}
                 >
                   <Edit3 className="size-4" />
                   配置安装成员
@@ -1442,14 +1460,17 @@ function SkillLibraryModule({
           );
         })}
       </div>
-      {installSkill ? (
+      {skillInstallOpen && selectedInstallSkill ? (
         <SkillInstallDialog
+          key={selectedInstallSkill.id}
           activeMembers={activeMembers}
-          skill={installSkill}
-          onClose={() => setInstallSkill(null)}
+          skill={selectedInstallSkill}
+          skillCatalog={skillCatalog}
+          onChangeSkill={setInstallSkill}
+          onClose={() => setSkillInstallOpen(false)}
           onSubmit={(memberIds) => {
-            onSaveSkillInstall(installSkill, memberIds);
-            setInstallSkill(null);
+            onSaveSkillInstall(selectedInstallSkill, memberIds);
+            setSkillInstallOpen(false);
           }}
         />
       ) : null}
@@ -1474,14 +1495,18 @@ function TeammateStat({
 
 function SkillInstallDialog({
   activeMembers,
+  onChangeSkill,
   onClose,
   onSubmit,
   skill,
+  skillCatalog,
 }: Readonly<{
   activeMembers: Member[];
+  onChangeSkill: (skill: SkillCatalogItem) => void;
   onClose: () => void;
   onSubmit: (memberIds: string[]) => void;
   skill: SkillCatalogItem;
+  skillCatalog: SkillCatalogItem[];
 }>) {
   const [memberIds, setMemberIds] = useState(() =>
     activeMembers.filter((member) => hasInstalledSkill(member, skill.id)).map((member) => member.id),
@@ -1502,7 +1527,21 @@ function SkillInstallDialog({
     <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4">
       <form className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl" onSubmit={handleSubmit}>
         <DialogHeader eyebrow="技能安装" title={`配置 ${skill.name}`} onClose={onClose} />
-        <div className="rounded-md border border-stone-200 bg-stone-50 p-3">
+        <TaskSelect
+          label="选择技能"
+          value={skill.id}
+          onChange={(skillId) => {
+            const nextSkill = skillCatalog.find((item) => item.id === skillId);
+            if (nextSkill) onChangeSkill(nextSkill);
+          }}
+        >
+          {skillCatalog.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name} · {item.category} · {item.riskLevel}风险
+            </option>
+          ))}
+        </TaskSelect>
+        <div className="mt-3 rounded-md border border-stone-200 bg-stone-50 p-3">
           <div className="flex flex-wrap items-center gap-2">
             <SkillCategoryBadge category={skill.category} />
             <SkillRiskBadge riskLevel={skill.riskLevel} />
