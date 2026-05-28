@@ -55,6 +55,7 @@ import type {
   SkillCategory,
   SkillInvocationMode,
   SkillRiskLevel,
+  WorkspaceSkillInstall,
   Task,
   TaskPriority,
   TaskStatus,
@@ -67,7 +68,8 @@ type PersistedWorkspaceState = {
   messages: Message[];
   sessions: AgentSession[];
   tasks: Task[];
-  workspaceSkillIds: string[];
+  workspaceSkillInstalls: WorkspaceSkillInstall[];
+  workspaceSkillIds?: string[];
 };
 
 type TaskFormMode = "create" | "edit";
@@ -130,7 +132,11 @@ const initialWorkspaceState: PersistedWorkspaceState = {
   messages,
   sessions,
   tasks,
-  workspaceSkillIds: skillCatalog.slice(0, 3).map((skill) => skill.id),
+  workspaceSkillInstalls: skillCatalog.slice(0, 3).map((skill) => ({
+    id: skill.id,
+    installedAt: "2026-05-28",
+    installedVersion: skill.version,
+  })),
 };
 
 const emptyTaskForm: TaskFormState = {
@@ -279,7 +285,7 @@ export function CrewlyWorkspace() {
     messages: workspaceMessages,
     sessions: workspaceSessions,
     tasks: workspaceTasks,
-    workspaceSkillIds,
+    workspaceSkillInstalls,
   } = workspaceState;
 
   useEffect(() => {
@@ -310,6 +316,10 @@ export function CrewlyWorkspace() {
     workspaceMembers[0];
   const activeAiMembers = workspaceMembers.filter((member) => member.kind === "ai" && !member.archived);
   const assignableMembers = workspaceMembers.filter((member) => !member.archived);
+  const workspaceSkillIds = useMemo(
+    () => workspaceSkillInstalls.map((install) => install.id),
+    [workspaceSkillInstalls],
+  );
   const crewlySkillCatalog = useMemo(
     () => skillCatalog.filter((skill) => workspaceSkillIds.includes(skill.id)),
     [workspaceSkillIds],
@@ -572,9 +582,39 @@ export function CrewlyWorkspace() {
   }
 
   function installCrewlySkill(skillId: string) {
+    const skill = skillCatalog.find((item) => item.id === skillId);
+    if (!skill) return;
+
     setWorkspaceState((current) => ({
       ...current,
-      workspaceSkillIds: Array.from(new Set([...current.workspaceSkillIds, skillId])),
+      workspaceSkillInstalls: current.workspaceSkillInstalls.some((install) => install.id === skillId)
+        ? current.workspaceSkillInstalls
+        : [
+            ...current.workspaceSkillInstalls,
+            {
+              id: skillId,
+              installedAt: formatDate(),
+              installedVersion: skill.version,
+            },
+          ],
+    }));
+  }
+
+  function uninstallCrewlySkill(skillId: string) {
+    setWorkspaceState((current) => ({
+      ...current,
+      workspaceSkillInstalls: current.workspaceSkillInstalls.filter((install) => install.id !== skillId),
+      members: current.members.map((member) => {
+        if (member.kind !== "ai" || !member.skillConfig) return member;
+
+        return {
+          ...member,
+          skillConfig: {
+            ...member.skillConfig,
+            installedSkills: member.skillConfig.installedSkills.filter((skill) => skill.id !== skillId),
+          },
+        };
+      }),
     }));
   }
 
@@ -947,8 +987,9 @@ export function CrewlyWorkspace() {
             <SkillLibraryModule
               activeMembers={activeAiMembers}
               skillCatalog={skillCatalog}
-              workspaceSkillIds={workspaceSkillIds}
+              workspaceSkillInstalls={workspaceSkillInstalls}
               onInstallCrewlySkill={installCrewlySkill}
+              onUninstallCrewlySkill={uninstallCrewlySkill}
               onSelectMember={setSelectedMemberId}
             />
           )}
@@ -1321,20 +1362,25 @@ function AITeammateManager({
 function SkillLibraryModule({
   activeMembers,
   onInstallCrewlySkill,
+  onUninstallCrewlySkill,
   onSelectMember,
   skillCatalog,
-  workspaceSkillIds,
+  workspaceSkillInstalls,
 }: Readonly<{
   activeMembers: Member[];
   onInstallCrewlySkill: (skillId: string) => void;
+  onUninstallCrewlySkill: (skillId: string) => void;
   onSelectMember: (memberId: string) => void;
   skillCatalog: SkillCatalogItem[];
-  workspaceSkillIds: string[];
+  workspaceSkillInstalls: WorkspaceSkillInstall[];
 }>) {
   const [skillInstallOpen, setSkillInstallOpen] = useState(false);
+  const [uninstallSkill, setUninstallSkill] = useState<SkillCatalogItem | null>(null);
+  const workspaceSkillIds = workspaceSkillInstalls.map((install) => install.id);
   const installedSkillIdSet = useMemo(() => new Set(workspaceSkillIds), [workspaceSkillIds]);
   const crewlySkills = skillCatalog.filter((skill) => installedSkillIdSet.has(skill.id));
   const marketplaceSkills = skillCatalog.filter((skill) => !installedSkillIdSet.has(skill.id));
+  const installBySkillId = new Map(workspaceSkillInstalls.map((install) => [install.id, install]));
   const totalInstallations = activeMembers.reduce(
     (total, member) => total + (member.skillConfig?.installedSkills.filter((skill) => skill.enabled).length ?? 0),
     0,
@@ -1373,6 +1419,8 @@ function SkillLibraryModule({
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         {crewlySkills.map((skill) => {
           const installedMembers = activeMembers.filter((member) => hasInstalledSkill(member, skill.id));
+          const install = installBySkillId.get(skill.id);
+          const installStatus = getCrewlySkillInstallStatus(skill, install);
 
           return (
             <article key={skill.id} className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
@@ -1382,17 +1430,27 @@ function SkillLibraryModule({
                     <h3 className="text-base font-semibold">{skill.name}</h3>
                     <SkillCategoryBadge category={skill.category} />
                     <SkillRiskBadge riskLevel={skill.riskLevel} />
+                    <SkillInstallStatusBadge status={installStatus} />
                   </div>
                   <p className="mt-2 text-sm leading-6 text-slate-600">{skill.description}</p>
                 </div>
                 <span className="shrink-0 rounded-md bg-stone-100 px-2 py-1 text-xs font-medium text-slate-600">
-                  Crewly 已安装
+                  v{install?.installedVersion ?? skill.version}
                 </span>
               </div>
 
               <div className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
                 <InfoListTile label="权限" items={skill.permissions} />
                 <InfoListTile label="适用场景" items={skill.useCases} />
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <InfoTile label="来源" value={skill.source} />
+                <InfoTile label="作者" value={skill.author} />
+                <InfoTile label="市场版本" value={`v${skill.version}`} />
+                <InfoTile label="更新时间" value={skill.updatedAt} />
+                <InfoTile label="兼容范围" value={skill.compatibility} />
+                <InfoTile label="安装时间" value={install?.installedAt ?? "未知"} />
               </div>
 
               <div className="mt-3 rounded-md bg-stone-50 p-2 text-xs">
@@ -1419,6 +1477,16 @@ function SkillLibraryModule({
               <p className="mt-3 text-xs leading-5 text-slate-500">
                 成员启用入口在 AI 成员配置内，仅能选择已安装到 Crewly 的技能。
               </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-rose-200 bg-white px-3 text-sm font-medium text-rose-700 hover:bg-rose-50"
+                  type="button"
+                  onClick={() => setUninstallSkill(skill)}
+                >
+                  <Archive className="size-4" />
+                  卸载
+                </button>
+              </div>
             </article>
           );
         })}
@@ -1431,6 +1499,17 @@ function SkillLibraryModule({
           onSubmit={(skillId) => {
             onInstallCrewlySkill(skillId);
             setSkillInstallOpen(false);
+          }}
+        />
+      ) : null}
+      {uninstallSkill ? (
+        <SkillUninstallDialog
+          affectedMembers={activeMembers.filter((member) => hasInstalledSkill(member, uninstallSkill.id))}
+          skill={uninstallSkill}
+          onClose={() => setUninstallSkill(null)}
+          onSubmit={() => {
+            onUninstallCrewlySkill(uninstallSkill.id);
+            setUninstallSkill(null);
           }}
         />
       ) : null}
@@ -1496,6 +1575,14 @@ function SkillMarketplaceInstallDialog({
               <SkillRiskBadge riskLevel={selectedSkill.riskLevel} />
             </div>
             <p className="mt-2 text-sm leading-6 text-slate-600">{selectedSkill.description}</p>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <InfoTile label="来源" value={selectedSkill.source} />
+              <InfoTile label="作者" value={selectedSkill.author} />
+              <InfoTile label="版本" value={`v${selectedSkill.version}`} />
+              <InfoTile label="更新时间" value={selectedSkill.updatedAt} />
+              <InfoTile label="兼容范围" value={selectedSkill.compatibility} />
+              <InfoTile label="状态" value="未安装" />
+            </div>
             <div className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
               <InfoListTile label="权限" items={selectedSkill.permissions} />
               <InfoListTile label="适用场景" items={selectedSkill.useCases} />
@@ -1507,6 +1594,53 @@ function SkillMarketplaceInstallDialog({
           </div>
         )}
         <DialogActions submitLabel="安装到 Crewly" onClose={onClose} />
+      </form>
+    </div>
+  );
+}
+
+function SkillUninstallDialog({
+  affectedMembers,
+  onClose,
+  onSubmit,
+  skill,
+}: Readonly<{
+  affectedMembers: Member[];
+  onClose: () => void;
+  onSubmit: () => void;
+  skill: SkillCatalogItem;
+}>) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmit();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4">
+      <form className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl" onSubmit={handleSubmit}>
+        <DialogHeader eyebrow="Crewly 技能市场" title={`卸载 ${skill.name}`} onClose={onClose} />
+        <div className="rounded-md border border-rose-200 bg-rose-50 p-3">
+          <p className="text-sm font-semibold text-rose-800">卸载后将从 Crewly 技能市场移除该 skill。</p>
+          <p className="mt-2 text-sm leading-6 text-rose-700">
+            同时会自动从正在启用该技能的 AI 成员配置中移除，避免成员继续调用已卸载技能。
+          </p>
+        </div>
+        <div className="mt-3 rounded-md border border-stone-200 bg-stone-50 p-3 text-sm">
+          <p className="font-medium text-slate-700">影响成员</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {affectedMembers.length > 0 ? (
+              affectedMembers.map((member) => (
+                <span key={member.id} className="inline-flex items-center gap-1.5 rounded-md bg-white px-2 py-1 text-xs font-medium text-slate-700">
+                  <Avatar member={member} small />
+                  {member.name}
+                </span>
+              ))
+            ) : (
+              <span className="text-xs text-slate-500">暂无 AI 成员启用该技能。</span>
+            )}
+          </div>
+        </div>
+        <DialogActions submitLabel="确认卸载" onClose={onClose} />
       </form>
     </div>
   );
@@ -1539,6 +1673,19 @@ function SkillRiskBadge({ riskLevel }: Readonly<{ riskLevel: SkillRiskLevel }>) 
   return (
     <span className={`rounded-md border px-2 py-1 text-xs font-medium ${className}`}>
       {riskLevel}风险
+    </span>
+  );
+}
+
+function SkillInstallStatusBadge({ status }: Readonly<{ status: "已安装" | "可更新" }>) {
+  const className =
+    status === "可更新"
+      ? "border-amber-200 bg-amber-50 text-amber-800"
+      : "border-emerald-200 bg-emerald-50 text-emerald-700";
+
+  return (
+    <span className={`rounded-md border px-2 py-1 text-xs font-medium ${className}`}>
+      {status}
     </span>
   );
 }
@@ -3000,6 +3147,16 @@ function formatNow() {
   }).format(new Date());
 }
 
+function formatDate() {
+  return new Intl.DateTimeFormat("zh-CN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  })
+    .format(new Date())
+    .replace(/\//g, "-");
+}
+
 function normalizeAvatar(avatar: string, name: string) {
   return (avatar.trim() || name.trim().slice(0, 1) || "A").slice(0, 2).toUpperCase();
 }
@@ -3176,6 +3333,10 @@ function createSkillResultSummary(skill: SkillCatalogItem, task: Task) {
   return `已基于任务「${task.title}」完成一次「${skill.name}」模拟调用，输出方向：${useCase}。`;
 }
 
+function getCrewlySkillInstallStatus(skill: SkillCatalogItem, install?: WorkspaceSkillInstall) {
+  return install && install.installedVersion !== skill.version ? "可更新" : "已安装";
+}
+
 function slugifySkillId(value: string) {
   return value
     .trim()
@@ -3224,17 +3385,52 @@ function normalizeWorkspaceState(state: Partial<PersistedWorkspaceState>): Persi
     messages: state.messages ?? messages,
     sessions: state.sessions ?? sessions,
     tasks: state.tasks ?? tasks,
-    workspaceSkillIds: normalizeWorkspaceSkillIds(state.workspaceSkillIds),
+    workspaceSkillInstalls: normalizeWorkspaceSkillInstalls(state.workspaceSkillInstalls, state.workspaceSkillIds),
   };
 }
 
-function normalizeWorkspaceSkillIds(skillIds?: string[]) {
+function normalizeWorkspaceSkillInstalls(
+  installs?: WorkspaceSkillInstall[],
+  legacySkillIds?: string[],
+) {
   const catalogSkillIds = new Set(skillCatalog.map((skill) => skill.id));
-  const normalizedSkillIds = (skillIds ?? initialWorkspaceState.workspaceSkillIds).filter((skillId) =>
-    catalogSkillIds.has(skillId),
-  );
+  const sourceInstalls =
+    installs ??
+    legacySkillIds?.map((skillId) => {
+      const skill = skillCatalog.find((item) => item.id === skillId);
 
-  return normalizedSkillIds.length > 0 ? Array.from(new Set(normalizedSkillIds)) : initialWorkspaceState.workspaceSkillIds;
+      return {
+        id: skillId,
+        installedAt: "2026-05-28",
+        installedVersion: skill?.version ?? "1.0.0",
+      };
+    }) ??
+    initialWorkspaceState.workspaceSkillInstalls;
+  const normalizedInstalls = sourceInstalls
+    .filter((install) => catalogSkillIds.has(install.id))
+    .map((install) => {
+      const skill = skillCatalog.find((item) => item.id === install.id);
+
+      return {
+        id: install.id,
+        installedAt: install.installedAt || "2026-05-28",
+        installedVersion: install.installedVersion || skill?.version || "1.0.0",
+      };
+    });
+
+  return dedupeWorkspaceSkillInstalls(
+    normalizedInstalls.length > 0 ? normalizedInstalls : initialWorkspaceState.workspaceSkillInstalls,
+  );
+}
+
+function dedupeWorkspaceSkillInstalls(installs: WorkspaceSkillInstall[]) {
+  const seen = new Set<string>();
+
+  return installs.filter((install) => {
+    if (seen.has(install.id)) return false;
+    seen.add(install.id);
+    return true;
+  });
 }
 
 function normalizeMembers(items: Member[]) {

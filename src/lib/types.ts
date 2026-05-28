@@ -93,10 +93,21 @@ export type SkillCatalogItem = {
   id: string;
   name: string;
   description: string;
+  author: string;
   category: SkillCategory;
+  compatibility: string;
   permissions: string[];
   riskLevel: SkillRiskLevel;
+  source: string;
+  updatedAt: string;
   useCases: string[];
+  version: string;
+};
+
+export type WorkspaceSkillInstall = {
+  id: string;
+  installedAt: string;
+  installedVersion: string;
 };
 
 export type TeammateSkillConfig = {
