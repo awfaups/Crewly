@@ -36,6 +36,7 @@ import {
   tasks,
   workspace,
 } from "@/lib/mock-data";
+import { crewlyDataSource } from "@/lib/data-source";
 import type {
   AgentSession,
   Approval,
@@ -957,6 +958,7 @@ export function CrewlyWorkspace() {
           <TopBar
             aiMemberCount={activeAiMembers.length}
             channel={activeChannel}
+            dataSourceMode={crewlyDataSource.mode}
             onlineMemberCount={workspaceMembers.filter((member) => member.presence === "online").length}
             pendingCount={pendingApprovals.length}
           />
@@ -1215,11 +1217,13 @@ function ModuleNavButton({
 function TopBar({
   aiMemberCount,
   channel,
+  dataSourceMode,
   onlineMemberCount,
   pendingCount,
 }: Readonly<{
   aiMemberCount: number;
   channel: Channel;
+  dataSourceMode: "local" | "remote";
   onlineMemberCount: number;
   pendingCount: number;
 }>) {
@@ -1237,6 +1241,10 @@ function TopBar({
         <Badge icon={<Users className="size-3.5" />} label={`${onlineMemberCount} 位成员在线`} />
         <Badge icon={<Bot className="size-3.5" />} label={`${aiMemberCount} 个 AI 成员`} />
         <Badge icon={<ShieldCheck className="size-3.5" />} label={`${pendingCount} 个待审批`} />
+        <Badge
+          icon={<Activity className="size-3.5" />}
+          label={dataSourceMode === "remote" ? "远程 API" : "本地演示"}
+        />
       </div>
     </header>
   );

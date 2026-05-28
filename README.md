@@ -64,6 +64,15 @@ npm run dev:api
 - 健康检查：`http://127.0.0.1:4000/health`
 - API 状态：`http://127.0.0.1:4000/api/status`
 
+前端数据源默认仍是本地演示。需要切到远程 API 时设置：
+
+```bash
+NEXT_PUBLIC_CREWLY_DATA_SOURCE=remote
+NEXT_PUBLIC_CREWLY_API_URL=http://127.0.0.1:4000
+```
+
+当前前端已具备 API client 和数据源开关，后续会逐步把消息、任务、审批等操作接到远程 API。
+
 数据库迁移：
 
 ```bash
