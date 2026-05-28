@@ -167,7 +167,7 @@ const emptyMemberForm: MemberFormState = {
   organizationId: "",
   projectId: "",
   role: "",
-  skillApprovalRequired: true,
+  skillApprovalRequired: false,
   skillInvocationMode: "调用前确认",
   streaming: true,
   temperature: "0.7",
@@ -203,7 +203,7 @@ const defaultMemoryConfig = {
 const defaultSkillConfig = {
   installedSkills: skillCatalog.slice(0, 3).map(catalogItemToInstalledSkill),
   invocationMode: "调用前确认" as SkillInvocationMode,
-  requireApprovalForExternalActions: true,
+  requireApprovalForExternalActions: false,
 };
 
 const modelProviders: ModelProvider[] = [
@@ -308,7 +308,9 @@ export function CrewlyWorkspace() {
   const activeAiMembers = workspaceMembers.filter((member) => member.kind === "ai" && !member.archived);
   const assignableMembers = workspaceMembers.filter((member) => !member.archived);
   const channelMessages = workspaceMessages.filter((message) => message.channelId === activeChannel.id);
-  const taskApproval = approvals.find((approval) => approval.taskId === selectedTask.id);
+  const taskApproval =
+    [...approvals].reverse().find((approval) => approval.taskId === selectedTask.id && approval.status === "pending") ??
+    [...approvals].reverse().find((approval) => approval.taskId === selectedTask.id);
   const pendingApprovals = approvals.filter((approval) => approval.status === "pending");
 
   const taskGroups = useMemo(
@@ -488,6 +490,78 @@ export function CrewlyWorkspace() {
           : current.sessions,
       };
     });
+  }
+
+  function invokeSkill(member: Member, task: Task, session: AgentSession, skill: SkillCatalogItem) {
+    if (member.kind !== "ai" || !hasInstalledSkill(member, skill.id)) return;
+
+    const skillConfig = member.skillConfig ?? defaultSkillConfig;
+    const eventTime = formatNow();
+    const approvalRequired = skill.riskLevel === "高" || skillConfig.requireApprovalForExternalActions;
+    const approvalId = `approval-skill-${Date.now()}`;
+    const toolEvent = {
+      id: `event-skill-${Date.now()}`,
+      type: "tool" as RuntimeEventType,
+      title: `调用技能：${skill.name}`,
+      detail: `${member.name} 正在基于当前任务调用「${skill.name}」。分类：${skill.category}；风险：${skill.riskLevel}。`,
+      time: eventTime,
+    };
+    const nextEvents = approvalRequired
+      ? [
+          toolEvent,
+          {
+            id: `event-approval-${Date.now()}`,
+            type: "approval" as RuntimeEventType,
+            title: "等待技能调用审批",
+            detail: `「${skill.name}」需要审批后继续。原因：${getSkillApprovalReason(skill, skillConfig.requireApprovalForExternalActions)}。`,
+            time: eventTime,
+          },
+        ]
+      : [
+          toolEvent,
+          {
+            id: `event-result-${Date.now()}`,
+            type: "result" as RuntimeEventType,
+            title: `${skill.name} 已完成`,
+            detail: createSkillResultSummary(skill, task),
+            time: eventTime,
+          },
+        ];
+
+    setWorkspaceState((current) => ({
+      ...current,
+      approvals: approvalRequired
+        ? [
+            ...current.approvals,
+            {
+              id: approvalId,
+              title: `审批 ${member.name} 调用 ${skill.name}`,
+              summary: `${member.name} 请求在任务「${task.title}」中调用「${skill.name}」。${skill.description}`,
+              requesterId: member.id,
+              taskId: task.id,
+              status: "pending",
+              risk: `技能风险：${skill.riskLevel}。权限范围：${skill.permissions.join("、")}。`,
+            },
+          ]
+        : current.approvals,
+      sessions: current.sessions.map((item) =>
+        item.id === session.id
+          ? {
+              ...item,
+              status: approvalRequired ? "waiting_approval" : "running",
+              events: [...item.events, ...nextEvents],
+            }
+          : item,
+      ),
+      tasks: current.tasks.map((item) =>
+        item.id === task.id
+          ? {
+              ...item,
+              status: approvalRequired ? "review" : "doing",
+            }
+          : item,
+      ),
+    }));
   }
 
   function selectTask(task: Task) {
@@ -876,6 +950,7 @@ export function CrewlyWorkspace() {
             onDecision={decideApproval}
             onEditMember={openEditMemberForm}
             onEditTask={openEditTaskForm}
+            onInvokeSkill={invokeSkill}
             onTaskStatusAdvance={advanceTaskStatus}
             session={selectedSession}
             task={selectedTask}
@@ -1656,6 +1731,7 @@ function ContextPanel({
   onDecision,
   onEditMember,
   onEditTask,
+  onInvokeSkill,
   onTaskStatusAdvance,
   session,
   skillCatalog,
@@ -1668,6 +1744,7 @@ function ContextPanel({
   onDecision: (id: string, status: ApprovalStatus) => void;
   onEditMember: (member: Member) => void;
   onEditTask: (task: Task) => void;
+  onInvokeSkill: (member: Member, task: Task, session: AgentSession, skill: SkillCatalogItem) => void;
   onTaskStatusAdvance: (taskId: string) => void;
   session: AgentSession;
   skillCatalog: SkillCatalogItem[];
@@ -1747,6 +1824,15 @@ function ContextPanel({
             memory={member.memoryConfig ?? defaultMemoryConfig}
             skillCatalog={skillCatalog}
             skills={member.skillConfig ?? defaultSkillConfig}
+          />
+        ) : null}
+        {member.kind === "ai" ? (
+          <SkillInvocationPanel
+            member={member}
+            session={session}
+            skillCatalog={skillCatalog}
+            task={task}
+            onInvokeSkill={onInvokeSkill}
           />
         ) : null}
         {member.kind === "ai" ? (
@@ -2669,6 +2755,69 @@ function TeammateRuntimeSummary({
   );
 }
 
+function SkillInvocationPanel({
+  member,
+  onInvokeSkill,
+  session,
+  skillCatalog,
+  task,
+}: Readonly<{
+  member: Member;
+  onInvokeSkill: (member: Member, task: Task, session: AgentSession, skill: SkillCatalogItem) => void;
+  session: AgentSession;
+  skillCatalog: SkillCatalogItem[];
+  task: Task;
+}>) {
+  const installedSkills = (member.skillConfig?.installedSkills ?? defaultSkillConfig.installedSkills)
+    .filter((skill) => skill.enabled)
+    .map((skill) => findCatalogSkill(skill.id, skillCatalog))
+    .filter((skill): skill is SkillCatalogItem => Boolean(skill));
+
+  return (
+    <div className="mt-3 rounded-md border border-stone-200 bg-stone-50 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-800">可调用技能</p>
+          <p className="mt-1 text-xs text-slate-500">调用结果会写入当前 Agent Session。</p>
+        </div>
+        <Sparkles className="size-4 shrink-0 text-slate-500" />
+      </div>
+      <div className="mt-3 space-y-2">
+        {installedSkills.length > 0 ? (
+          installedSkills.map((skill) => {
+            const skillConfig = member.skillConfig ?? defaultSkillConfig;
+            const approvalRequired =
+              skill.riskLevel === "高" || skillConfig.requireApprovalForExternalActions;
+
+            return (
+              <button
+                key={skill.id}
+                className="flex w-full items-start justify-between gap-3 rounded-md border border-stone-200 bg-white p-3 text-left hover:border-slate-300 hover:bg-stone-50"
+                type="button"
+                onClick={() => onInvokeSkill(member, task, session, skill)}
+              >
+                <span className="min-w-0">
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-sm font-medium text-slate-800">{skill.name}</span>
+                    <SkillCategoryBadge category={skill.category} />
+                    <SkillRiskBadge riskLevel={skill.riskLevel} />
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-slate-500">{skill.description}</span>
+                </span>
+                <span className="shrink-0 rounded-md bg-stone-100 px-2 py-1 text-[11px] font-medium text-slate-600">
+                  {approvalRequired ? "需审批" : "直接模拟"}
+                </span>
+              </button>
+            );
+          })
+        ) : (
+          <p className="text-xs text-slate-500">该成员还没有可调用技能。</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SessionStatusBadge({ session }: Readonly<{ session: AgentSession }>) {
   const label =
     session.status === "running"
@@ -2929,12 +3078,29 @@ function findCatalogSkill(skillId: string, catalog: SkillCatalogItem[]) {
 }
 
 function hasInstalledSkill(member: Member, skillId: string) {
-  return Boolean(member.skillConfig?.installedSkills.some((skill) => skill.id === skillId && skill.enabled));
+  const installedSkills = member.skillConfig?.installedSkills ?? (member.kind === "ai" ? defaultSkillConfig.installedSkills : []);
+
+  return installedSkills.some((skill) => skill.id === skillId && skill.enabled);
 }
 
 function formatInstalledSkillLabel(skill: typeof defaultSkillConfig.installedSkills[number], catalog: SkillCatalogItem[]) {
   const catalogSkill = findCatalogSkill(skill.id, catalog);
   return catalogSkill ? `${catalogSkill.category} / ${catalogSkill.name}` : skill.name;
+}
+
+function getSkillApprovalReason(skill: SkillCatalogItem, requireApprovalForExternalActions: boolean) {
+  if (skill.riskLevel === "高" && requireApprovalForExternalActions) {
+    return "高风险技能且成员策略要求外部动作审批";
+  }
+  if (skill.riskLevel === "高") return "高风险技能";
+  if (requireApprovalForExternalActions) return "成员策略要求外部动作审批";
+  return "无需审批";
+}
+
+function createSkillResultSummary(skill: SkillCatalogItem, task: Task) {
+  const useCase = skill.useCases[0] ?? "任务推进";
+
+  return `已基于任务「${task.title}」完成一次「${skill.name}」模拟调用，输出方向：${useCase}。`;
 }
 
 function slugifySkillId(value: string) {
